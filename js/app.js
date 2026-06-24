@@ -1,11 +1,13 @@
 const POKEMON_TCG_API = 'https://api.pokemontcg.io/v2';
 const OCR_SPACE_API = 'https://api.ocr.space/parse/image';
+const TCGDEX_API = 'https://api.tcgdex.net/v2/en';
 const STORAGE_KEY = 'pokescanner_cards';
 const API_KEY_STORAGE = 'ocr_api_key';
 const PRIVACY_KEY = 'privacy_accepted';
 
 let cards = [];
 let pendingCard = null;
+let lastPricing = null;
 
 const $ = id => document.getElementById(id);
 const $$ = (sel, ctx = document) => ctx.querySelector(sel);
@@ -232,6 +234,28 @@ async function searchCardByNumber(number) {
     const data = await r.json();
     return data.data || [];
   } catch { return []; }
+}
+
+// ─── TCGdex Prices ────────────────────────────────────────
+async function fetchTCGdexPrice(cardId) {
+  if (!cardId) return null;
+  try {
+    const r = await fetch(`${TCGDEX_API}/cards/${cardId}`);
+    if (!r.ok) return null;
+    const data = await r.json();
+    return data.pricing?.cardmarket || null;
+  } catch {
+    return null;
+  }
+}
+
+function updatePriceFromPricing(holo) {
+  if (!lastPricing) return;
+  const key = holo ? 'avg-holo' : 'avg';
+  const val = lastPricing[key] ?? lastPricing.avg;
+  if (val != null) {
+    $('field-price').value = val.toFixed(2);
+  }
 }
 
 // ─── CSV Export ───────────────────────────────────────────
@@ -648,7 +672,27 @@ function selectCard(card) {
   };
 
   $('card-details').classList.remove('hidden');
+
+  // Fetch Cardmarket price from TCGdex
+  lastPricing = null;
+  fetchTCGdexPrice(card.id).then(pricing => {
+    if (pricing) {
+      lastPricing = pricing;
+      const holo = $('field-holo').checked;
+      const key = holo ? 'avg-holo' : 'avg';
+      const val = pricing[key] ?? pricing.avg;
+      if (val != null) {
+        $('field-price').value = val.toFixed(2);
+        toast(`💰 Preço Cardmarket: €${val.toFixed(2)}`);
+      }
+    }
+  });
 }
+
+// Holo checkbox updates price suggestion
+$('field-holo').addEventListener('change', () => {
+  updatePriceFromPricing($('field-holo').checked);
+});
 
 // Add card
 $('btn-add').addEventListener('click', () => {
