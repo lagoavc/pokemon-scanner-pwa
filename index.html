@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>PokéScanner</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>PokéScanner</h1>
+    <div class="header-actions">
+      <span class="badge" id="count-badge">0</span>
+      <button id="btn-help" class="icon-btn" title="Ajuda">&#9432;</button>
+      <button id="btn-list" class="icon-btn" title="Ver lista">&#9776;</button>
+    </div>
+  </header>
+
+  <main id="camera-view">
+    <video id="video-camera" autoplay playsinline muted></video>
+    <div id="frame-guide">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+      <p class="hint">Enquadre a carta Pokémon</p>
+    </div>
+    <div id="camera-controls">
+      <button id="btn-capture" class="capture-btn" aria-label="Capturar"></button>
+    </div>
+    <div id="camera-error" class="hidden">
+      <p>&#9888; Câmara indisponível</p>
+      <label class="btn">
+        Selecionar Foto
+        <input type="file" id="file-input" accept="image/*" capture="environment" hidden>
+      </label>
+    </div>
+  </main>
+
+  <div id="modal-overlay" class="hidden"></div>
+
+  <div id="panel-review" class="slide-panel">
+    <div class="panel-handle"></div>
+    <div class="panel-header">
+      <h2>Revisar Carta</h2>
+      <button class="btn-close" id="close-review">&times;</button>
+    </div>
+    <div class="panel-body">
+      <div class="captured-preview">
+        <img id="captured-img" alt="">
+      </div>
+      <div id="detected-info">
+        <div class="field">
+          <label>Nome da Carta</label>
+          <input type="text" id="field-name" placeholder="Ex: Charizard">
+        </div>
+        <div class="field">
+          <label>Expansão</label>
+          <input type="text" id="field-set" placeholder="Ex: Obsidian Flames">
+        </div>
+        <div class="field">
+          <label>N&ordm; Colecionador</label>
+          <input type="text" id="field-number" placeholder="Ex: 043/165">
+        </div>
+        <button id="btn-search" class="btn primary full">&#128270; Pesquisar</button>
+      </div>
+      <div id="search-results" class="hidden"></div>
+      <div id="card-details" class="hidden">
+        <div class="form-row">
+          <div class="field">
+            <label>Estado</label>
+            <select id="field-condition">
+              <option value="MT">Mint</option>
+              <option value="NM" selected>Near Mint</option>
+              <option value="EX">Excellent</option>
+              <option value="GD">Good</option>
+              <option value="LP">Light Played</option>
+              <option value="PL">Played</option>
+              <option value="PO">Poor</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Idioma</label>
+            <select id="field-language">
+              <option value="English">English</option>
+              <option value="French">Fran&ccedil;ais</option>
+              <option value="German">Deutsch</option>
+              <option value="Spanish">Espa&ntilde;ol</option>
+              <option value="Italian">Italiano</option>
+              <option value="Portuguese">Portugu&ecirc;s</option>
+              <option value="Japanese">日本語</option>
+              <option value="Korean">한국어</option>
+              <option value="Chinese Simplified">简体中文</option>
+              <option value="Chinese Traditional">繁體中文</option>
+              <option value="Russian">Русский</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>Pre&ccedil;o (&euro;)</label>
+            <input type="number" id="field-price" step="0.01" min="0" value="0.00">
+          </div>
+          <div class="field">
+            <label>Quantidade</label>
+            <input type="number" id="field-qty" min="1" value="1">
+          </div>
+        </div>
+        <label class="checkbox-field">
+          <input type="checkbox" id="field-holo">
+          Reverse Holo
+        </label>
+        <button id="btn-add" class="btn primary full">&#9989; Adicionar &agrave; Lista</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-list" class="slide-panel">
+    <div class="panel-handle"></div>
+    <div class="panel-header">
+      <h2>Lista de Cartas</h2>
+      <button class="btn-close" id="close-list">&times;</button>
+    </div>
+    <div class="panel-body">
+      <p id="empty-msg" class="empty-state">Nenhuma carta adicionada.</p>
+      <div id="list-content" class="hidden">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Exp.</th>
+              <th>N&ordm;</th>
+              <th>Est.</th>
+              <th>Idioma</th>
+              <th>Pre&ccedil;o</th>
+              <th>Qtd</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="list-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button id="btn-scan-more" class="btn full">&#128247; Digitalizar Mais</button>
+      <div class="footer-row">
+        <button id="btn-clear" class="btn danger half">&#128465; Limpar</button>
+        <button id="btn-export-csv" class="btn primary half">&#128229; Exportar CSV</button>
+      </div>
+      <div class="export-options hidden" id="export-options">
+        <p>Formato:</p>
+        <button class="btn small" data-format="simple">Simples (Nome,Exp,N&ordm;)</button>
+        <button class="btn small" data-format="cardmarket">Cardmarket Bulk Import</button>
+        <button class="btn small" data-format="tcgpt">TCGPowerTools</button>
+      </div>
+      <div class="footer-row" style="margin-top:8px">
+        <button id="btn-export-json" class="btn half">&#128230; Exportar JSON</button>
+        <label class="btn half" style="cursor:pointer">&#128194; Importar JSON
+          <input type="file" id="file-import-json" accept=".json" hidden>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div id="panel-help" class="slide-panel">
+    <div class="panel-handle"></div>
+    <div class="panel-header">
+      <h2>Ajuda e Defini&ccedil;&otilde;es</h2>
+      <button class="btn-close" id="close-help">&times;</button>
+    </div>
+    <div class="panel-body">
+      <section class="help-section">
+        <h3>&#128247; Como usar</h3>
+        <ol>
+          <li>Aponte a c&acirc;mara para uma carta Pok&eacute;mon</li>
+          <li>Prima o bot&atilde;o de captura (c&iacute;rculo branco)</li>
+          <li>A imagem &eacute; enviada para OCR.space que tenta extrair o nome e n&uacute;mero</li>
+          <li>Confirme ou corrija os dados manualmente</li>
+          <li>Prima "Pesquisar" para encontrar a carta na Pok&eacute;mon TCG API</li>
+          <li>Defina estado, idioma, pre&ccedil;o e quantidade</li>
+          <li>Prima "Adicionar &agrave; Lista"</li>
+        </ol>
+      </section>
+
+      <section class="help-section">
+        <h3>&#128273; API Key do OCR.space</h3>
+        <p>O OCR.space &eacute; o servi&ccedil;o que l&ecirc; o texto das imagens. Precisa de uma chave gratuita:</p>
+        <ol>
+          <li>Abra <a href="https://ocr.space/ocrapi" target="_blank" rel="noopener">ocr.space/ocrapi</a></li>
+          <li>Registe-se (email + palavra-passe)</li>
+          <li>A chave API ser&aacute; enviada para o seu email</li>
+          <li>Copie a chave e cole abaixo</li>
+        </ol>
+        <div class="field">
+          <label for="input-api-key">A sua API Key</label>
+          <div class="api-key-row">
+            <input type="text" id="input-api-key" placeholder="Cole a sua API key aqui">
+            <button id="btn-save-key" class="btn primary">Guardar</button>
+          </div>
+          <p class="field-hint">A chave fica guardada apenas neste telem&oacute;vel (localStorage).</p>
+        </div>
+        <div id="api-key-status" class="hidden"></div>
+      </section>
+
+      <section class="help-section">
+        <h3>&#9888; Limita&ccedil;&otilde;es</h3>
+        <ul>
+          <li><strong>Plano gratuito OCR.space:</strong> 10 requests/dia. Se exceder, a app avisa.</li>
+          <li><strong>Qualidade do OCR:</strong> cartas com texto dourado, foil ou brilho podem ter leitura incorreta.</li>
+          <li><strong>Pok&eacute;mon TCG API:</strong> gratuita mas com limite de pedidos. Pode falhar em hora de pico.</li>
+          <li><strong>Conex&atilde;o:</strong> requer internet para OCR e pesquisa de cartas.</li>
+        </ul>
+      </section>
+
+      <section class="help-section">
+        <h3>&#128230; Exportar CSV</h3>
+        <p>Tr&ecirc;s formatos dispon&iacute;veis:</p>
+        <ul>
+          <li><strong>Simples:</strong> Nome, Expans&atilde;o, N&ordm;, Idioma, Estado, Pre&ccedil;o, Qtd, Holo</li>
+          <li><strong>Cardmarket Bulk Import:</strong> formato oficial do Cardmarket para importar cole&ccedil;&otilde;es</li>
+          <li><strong>TCGPowerTools:</strong> formato compat&iacute;vel com TCGPowerTools</li>
+        </ul>
+      </section>
+
+      <section class="help-section">
+        <h3>&#128200; Backup JSON</h3>
+        <p>Pode exportar e importar a lista completa em JSON. Os dados ficam guardados no seu telem&oacute;vel (localStorage) mesmo depois de fechar a app.</p>
+      </section>
+
+      <section class="help-section">
+        <h3>&#128373; Privacidade</h3>
+        <p>As fotos que tira s&atilde;o enviadas para:</p>
+        <ul>
+          <li><strong>OCR.space</strong> &mdash; para reconhecimento de texto</li>
+          <li><strong>Pok&eacute;mon TCG API</strong> &mdash; para pesquisar detalhes das cartas</li>
+        </ul>
+        <p>Nenhuma imagem ou dado &eacute; guardado em servidores nossos. A sua API key do OCR.space fica apenas no seu dispositivo.</p>
+      </section>
+
+      <section class="help-section help-version">
+        <span>Pok&eacute;Scanner v<span id="app-version">1.0.0</span></span>
+      </section>
+    </div>
+  </div>
+
+  <div id="privacy-overlay" class="hidden">
+    <div class="privacy-modal">
+      <h2>&#128373; Privacidade</h2>
+      <p>O Pok&eacute;Scanner utiliza servi&ccedil;os externos para funcionar:</p>
+      <ul>
+        <li><strong>OCR.space</strong> &mdash; as fotos das cartas s&atilde;o enviadas para reconhecimento de texto</li>
+        <li><strong>Pok&eacute;mon TCG API</strong> &mdash; pesquisa detalhes das cartas (nome, expans&atilde;o, imagem)</li>
+      </ul>
+      <p>N&atilde;o guardamos qualquer dado nos nossos servidores. A sua chave API do OCR.space fica apenas no seu dispositivo.</p>
+      <p class="privacy-note">Ao continuar, confirma que compreende e aceita estas condi&ccedil;&otilde;es.</p>
+      <button id="btn-accept-privacy" class="btn primary full">Aceitar e Continuar</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

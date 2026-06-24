@@ -1,0 +1,835 @@
+const POKEMON_TCG_API = 'https://api.pokemontcg.io/v2';
+const OCR_SPACE_API = 'https://api.ocr.space/parse/image';
+const STORAGE_KEY = 'pokescanner_cards';
+const API_KEY_STORAGE = 'ocr_api_key';
+const PRIVACY_KEY = 'privacy_accepted';
+
+let cards = [];
+let pendingCard = null;
+
+const $ = id => document.getElementById(id);
+const $$ = (sel, ctx = document) => ctx.querySelector(sel);
+const $$$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
+
+function toast(msg, dur = 2500) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), dur);
+}
+
+function openPanel(id) {
+  $$$('.slide-panel.open').forEach(p => p.classList.remove('open'));
+  const panel = $(id);
+  panel.classList.remove('hidden');
+  panel.classList.add('open');
+  $('modal-overlay').classList.remove('hidden');
+}
+
+function closeAllPanels() {
+  $$$('.slide-panel.open').forEach(p => p.classList.remove('open'));
+  $('modal-overlay').classList.add('hidden');
+}
+
+function formatDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ─── API Key Management ─────────────────────────────────
+function getApiKey() {
+  return localStorage.getItem(API_KEY_STORAGE) || '';
+}
+
+function setApiKey(key) {
+  localStorage.setItem(API_KEY_STORAGE, key);
+}
+
+// ─── Camera ──────────────────────────────────────────────
+let cameraStream = null;
+
+async function initCamera() {
+  const video = $('video-camera');
+  const errEl = $('camera-error');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
+    });
+    cameraStream = stream;
+    video.srcObject = stream;
+    await video.play();
+    errEl.classList.add('hidden');
+  } catch (e) {
+    console.error('Camera error:', e);
+    errEl.classList.remove('hidden');
+  }
+}
+
+function capturePhoto() {
+  const video = $('video-camera');
+  if (!video.videoWidth) return null;
+  const canvas = document.createElement('canvas');
+  const maxDim = 2000;
+  let w = video.videoWidth, h = video.videoHeight;
+  if (w > maxDim || h > maxDim) {
+    const scale = maxDim / Math.max(w, h);
+    w = Math.round(w * scale);
+    h = Math.round(h * scale);
+  }
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(video, 0, 0, w, h);
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+function cropRegion(imgData, topPct, heightPct) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      const sy = Math.round(img.height * topPct);
+      const sh = Math.round(img.height * heightPct);
+      c.width = img.width;
+      c.height = sh;
+      c.getContext('2d').drawImage(img, 0, sy, img.width, sh, 0, 0, img.width, sh);
+      resolve(c.toDataURL('image/jpeg', 0.95));
+    };
+    img.onerror = () => reject(new Error('Falha ao carregar imagem'));
+    img.src = imgData;
+  });
+}
+function cropTop(imgData) { return cropRegion(imgData, 0, 0.25); }
+function cropBottom(imgData) { return cropRegion(imgData, 0.35, 0.65); }
+
+// ─── OCR (direct from browser) ────────────────────────────
+async function ocrSpace(imageData, label) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error('API key do OCR.space não configurada. Abra Ajuda > Definições.');
+  }
+
+  const body = new URLSearchParams();
+  body.append('apikey', apiKey);
+  body.append('base64Image', imageData);
+  body.append('language', 'eng');
+  body.append('isOverlayRequired', 'false');
+  body.append('OCREngine', '2');
+  body.append('filetype', 'jpg');
+
+  const r = await fetch(OCR_SPACE_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body
+  });
+
+  if (r.status === 403 || r.status === 429) {
+    throw new Error('Limite do OCR.space atingido (10 requests/dia no free). Usa outra chave ou aguarda.');
+  }
+  if (!r.ok) {
+    throw new Error(`OCR.space HTTP ${r.status}`);
+  }
+
+  const data = await r.json();
+  if (data.IsErroredOnProcessing || data.ErrorMessage) {
+    const msg = Array.isArray(data.ErrorMessage) ? data.ErrorMessage[0] : data.ErrorMessage || 'Erro no OCR.space';
+    const msgLower = msg.toLowerCase();
+    if (msgLower.includes('limit') || msgLower.includes('daily') || msgLower.includes('exceed')) {
+      throw new Error('Limite diário do OCR.space atingido (10 requests/dia no plano free).');
+    }
+    throw new Error(msg);
+  }
+
+  let text = data.ParsedResults?.[0]?.ParsedText || '';
+  text = text.replace(/\r/g, '');
+  console.log(`[OCR ${label}]`, text.slice(0, 300));
+  return parseOCROutput(text);
+}
+
+function normalizeNumber(n) {
+  return n.replace(/[Oo]/g, '0').replace(/[Ll]/g, '1').replace(/[Ss]/g, '5');
+}
+function parseCollectorNumber(raw) {
+  const m = raw.match(/^0*(\d+)\/\d+$/);
+  return m ? m[1] : raw;
+}
+
+function parseOCROutput(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const result = { name: text, number: '', set: '' };
+  const langCodes = new Set(['ENG','JPN','FRA','GER','ITA','SPA','CHS','CHT','KOR','POR']);
+
+  for (let i = 0; i < lines.length; i++) {
+    let m = lines[i].match(/(\d{2,3}\/\d{2,4})/);
+    if (!m) {
+      const normalized = normalizeNumber(lines[i]);
+      m = normalized.match(/(\d{2,3}\/\d{2,4})/);
+    }
+    if (!m) continue;
+    result.number = m[1];
+    const beforeNum = lines[i].slice(0, m.index).toUpperCase();
+    const codes = beforeNum.match(/([A-Z]{2,4})/g);
+    if (codes) {
+      for (const c of codes) {
+        const s = c.slice(0, 3);
+        if (!langCodes.has(s) && s !== result.number.split('/')[0]) {
+          result.set = s; break;
+        }
+      }
+    }
+    if (!result.set) {
+      const ignoreWords = new Set(['WEA','RES','RET','BAS','STA','POK','TRA','ATT','ABI','DAR','FIG',
+        'WAT','GRA','LIG','PSY','MET','FGT','COL','FRE','DRA','FAI']);
+      for (let offset = 1; offset <= 5; offset++) {
+        for (const j of [i - offset, i + offset]) {
+          if (j < 0 || j >= lines.length || j === i) continue;
+          const codes = lines[j].toUpperCase().match(/([A-Z]{2,4})/g);
+          if (!codes) continue;
+          for (const c of codes) {
+            const s = c.slice(0, 3);
+            if (!langCodes.has(s) && !ignoreWords.has(s)) { result.set = s; break; }
+          }
+          if (result.set) break;
+        }
+        if (result.set) break;
+      }
+    }
+    break;
+  }
+
+  return result;
+}
+
+// ─── Pokemon TCG API ─────────────────────────────────────
+async function searchPokemonCard(name, set, number) {
+  const parts = [];
+  if (name) parts.push(`name:"${name}"`);
+  if (set && set.length > 2) parts.push(`set.name:"${set}"`);
+  if (number) parts.push(`number:"${number}"`);
+
+  if (parts.length === 0) return [];
+
+  const q = parts.join(' ');
+  try {
+    const r = await fetch(`${POKEMON_TCG_API}/cards?q=${encodeURIComponent(q)}&pageSize=10`);
+    if (!r.ok) throw new Error(`API error: ${r.status}`);
+    const data = await r.json();
+    return data.data || [];
+  } catch (e) {
+    console.error('API search error:', e);
+    toast('Erro ao pesquisar carta');
+    return [];
+  }
+}
+
+async function searchCardByNumber(number) {
+  const num = parseCollectorNumber(number);
+  try {
+    const r = await fetch(`${POKEMON_TCG_API}/cards?q=number:"${num}"&pageSize=10`);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return data.data || [];
+  } catch { return []; }
+}
+
+// ─── CSV Export ───────────────────────────────────────────
+function escapeCSV(val) {
+  const s = String(val ?? '');
+  if (s.includes(';') || s.includes('"') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function generateCSVSimple() {
+  const header = 'Name;Expansion;CollectorNumber;Language;Condition;Price;Quantity;ReverseHolo';
+  const rows = cards.map(c => [
+    c.name, c.set, c.number, c.language, c.condition,
+    c.price.toFixed(2), c.quantity, c.holo ? 'Yes' : 'No'
+  ].map(escapeCSV).join(';'));
+  return '# PokéScanner Export - ' + formatDate() + '\n' + header + '\n' + rows.join('\n');
+}
+
+function generateCSVCardmarket() {
+  const header = 'idProduct;groupCount;price;idLanguage;condition;isFoil;isSigned;isAltered;isPlayset;isReverseHolo;isFirstEd;isFullArt;isUberRare;isWithDie';
+  const langMap = { 'English':1,'French':2,'German':3,'Spanish':4,'Italian':5,'Portuguese':6,'Japanese':7,'Korean':10,'Chinese Simplified':8,'Chinese Traditional':9,'Russian':11 };
+  const condMap = { 'MT':1,'NM':1,'EX':2,'GD':3,'LP':4,'PL':5,'PO':6 };
+  const rows = cards.map(c => [
+    '', c.quantity, c.price.toFixed(2), langMap[c.language] || 1,
+    condMap[c.condition] || 1, '', '', '', '', c.holo ? '1' : '', '', '', '', ''
+  ].join(';'));
+  return header + '\n' + rows.join('\n');
+}
+
+function generateCSVTCGPowerTools() {
+  const header = 'Quantity;Name;Expansion;Collector Number;Language;Condition;Price;Reverse Holo';
+  const rows = cards.map(c => [
+    c.quantity, c.name, c.set, c.number, c.language, c.condition,
+    c.price.toFixed(2), c.holo ? 'Yes' : 'No'
+  ].map(escapeCSV).join(';'));
+  return '# PokéScanner - TCGPowerTools Import\n' + header + '\n' + rows.join('\n');
+}
+
+function downloadCSV(content, filename) {
+  const blob = new Blob(['\ufeff' + content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ─── JSON Backup / Restore ────────────────────────────────
+function exportJSON() {
+  if (cards.length === 0) { toast('Lista vazia'); return; }
+  const data = {
+    version: '1.0.0',
+    exportedAt: new Date().toISOString(),
+    cards: cards
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `pokescanner_backup_${formatDate()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('📥 Backup JSON exportado');
+}
+
+function importJSON(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      const imported = data.cards || (Array.isArray(data) ? data : []);
+      if (!imported.length) { toast('Nenhuma carta encontrada no ficheiro'); return; }
+
+      const count = imported.length;
+      if (cards.length > 0) {
+        const merge = confirm(`Já tens ${cards.length} cartas. Desejas substituir ou adicionar?\nOK = Substituir | Cancelar = Adicionar`);
+        if (merge) {
+          cards = imported;
+        } else {
+          cards = cards.concat(imported);
+        }
+      } else {
+        cards = imported;
+      }
+
+      saveCards();
+      renderList();
+      toast(`✅ ${count} carta(s) importada(s)`);
+    } catch (err) {
+      toast('❌ Ficheiro JSON inválido');
+      console.error('Import error:', err);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ─── Persistence ──────────────────────────────────────────
+function saveCards() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
+}
+
+function loadCards() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    cards = stored ? JSON.parse(stored) : [];
+  } catch {
+    cards = [];
+  }
+}
+
+// ─── Privacy ──────────────────────────────────────────────
+function checkPrivacy() {
+  if (!localStorage.getItem(PRIVACY_KEY)) {
+    $('privacy-overlay').classList.remove('hidden');
+  }
+}
+
+// ─── UI Logic ─────────────────────────────────────────────
+function renderList() {
+  const tbody = $('list-tbody');
+  const empty = $('empty-msg');
+  const content = $('list-content');
+
+  tbody.innerHTML = '';
+  if (cards.length === 0) {
+    empty.classList.remove('hidden');
+    content.classList.add('hidden');
+    $('count-badge').textContent = '0';
+    return;
+  }
+
+  empty.classList.add('hidden');
+  content.classList.remove('hidden');
+  $('count-badge').textContent = cards.length;
+
+  cards.forEach((c, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeCSV(c.name)}</td>
+      <td style="max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeCSV(c.set)}</td>
+      <td>${escapeCSV(c.number)}</td>
+      <td>${escapeCSV(c.condition)}</td>
+      <td>${escapeCSV(c.language.slice(0, 3))}</td>
+      <td>€${c.price.toFixed(2)}</td>
+      <td>${c.quantity}</td>
+      <td><button class="delete-btn" data-index="${i}">&times;</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  $$$('.delete-btn', tbody).forEach(btn => {
+    btn.addEventListener('click', () => {
+      cards.splice(parseInt(btn.dataset.index), 1);
+      saveCards();
+      renderList();
+    });
+  });
+}
+
+function clearReviewPanel() {
+  $('field-name').value = '';
+  $('field-set').value = '';
+  $('field-number').value = '';
+  $('field-price').value = '0.00';
+  $('field-qty').value = '1';
+  $('field-condition').value = 'NM';
+  $('field-language').value = 'English';
+  $('field-holo').checked = false;
+  $('search-results').classList.add('hidden');
+  $('search-results').innerHTML = '';
+  $('card-details').classList.add('hidden');
+  $('captured-img').src = '';
+  pendingCard = null;
+}
+
+function showReview(imageData) {
+  $('captured-img').src = imageData;
+  openPanel('panel-review');
+}
+
+// ─── Event Handlers ───────────────────────────────────────
+
+// Capture with OCR
+$('btn-capture').addEventListener('click', async () => {
+  if (!getApiKey()) { toast('🔑 Configura a API key na Ajuda primeiro'); openPanel('panel-help'); return; }
+
+  const imgData = capturePhoto();
+  if (!imgData) { toast('Câmara não disponível'); return; }
+  toast('📡 OCR em curso...');
+  try {
+    showReview(imgData);
+    const ocr = await ocrSpace(imgData, 'FULL');
+
+    if (ocr && ocr.name) {
+      const lines = ocr.name.split('\n').map(l => l.trim()).filter(Boolean);
+      for (const l of lines) {
+        const clean = l.replace(/[^A-Za-zÀ-ÿ0-9\s\-'.!]/g, '').trim();
+        if (!clean || clean.length < 3 || /^\d+$/.test(clean)) continue;
+        if (clean.split(' ').length > 5) continue;
+        if (/^(HP|WEAKNESS|RESISTANCE|RETREAT|POKEMON|POKÉMON|BASIC|STAGE|TYPE|ABILITY|ATTACK|DAMAGE|ENERGY|NO\.|ILLUS|STAGE)/i.test(clean)) continue;
+        $('field-name').value = clean;
+        break;
+      }
+    }
+
+    if (ocr && ocr.number) {
+      $('field-number').value = ocr.number;
+      searchByNumber(ocr.number, ocr.set, $('field-name').value);
+      toast(`🔍 OCR: ${$('field-name').value || 'nº ' + ocr.number}`);
+    } else if (ocr && !ocr.number) {
+      toast('📄 OCR não encontrou nº de carta. Escreve o nome.');
+    } else {
+      toast('❌ OCR não respondeu. Escreve o nome manualmente.');
+    }
+  } catch (e) {
+    toast(`⚠️ ${e.message}`);
+  }
+  $('field-name').focus();
+});
+
+// File input fallback
+$('file-input').addEventListener('change', async (e) => {
+  if (!getApiKey()) { toast('🔑 Configura a API key na Ajuda primeiro'); openPanel('panel-help'); return; }
+
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    const imgData = ev.target.result;
+    toast('📡 OCR em curso...');
+    try {
+      showReview(imgData);
+      const [topOcr, bottomOcr] = await Promise.all([
+        ocrSpace(await cropTop(imgData), 'TOP'),
+        ocrSpace(await cropBottom(imgData), 'BOT')
+      ]);
+      const ocr = bottomOcr;
+      const nameLines = (topOcr.name || '').split('\n').map(l => l.trim()).filter(Boolean);
+      let cardName = '';
+      for (const l of nameLines) {
+        const clean = l.replace(/[^A-Za-zÀ-ÿ0-9\s\-'.]/g, '').trim();
+        if (!clean || clean.length < 3 || /^\d+$/.test(clean)) continue;
+        if (clean.split(' ').length > 6) continue;
+        if (/^(HP|WEAKNESS|RESISTANCE|RETREAT|POKEMON|BASIC|STAGE|TYPE|ABILITY|ATTACK|DAMAGE|ENERGY)/i.test(clean)) continue;
+        cardName = clean;
+        break;
+      }
+      if (cardName) $('field-name').value = cardName;
+      if (ocr && ocr.number) {
+        $('field-number').value = ocr.number;
+        toast(`🔍 OCR: ${cardName || 'nº ' + ocr.number}`);
+        searchByNumber(ocr.number, ocr.set, cardName);
+      } else if (ocr && !ocr.number) {
+        toast('📄 OCR não encontrou nº de carta. Escreve o nome.');
+      } else {
+        toast('❌ OCR não respondeu. Escreve o nome manualmente.');
+      }
+    } catch (e) {
+      toast(`⚠️ ${e.message}`);
+    }
+    $('field-name').focus();
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+// Auto-suggest as user types
+let suggestTimeout = null;
+$('field-name').addEventListener('input', () => {
+  clearTimeout(suggestTimeout);
+  const name = $('field-name').value.trim();
+  if (name.length < 2) { $('search-results').classList.add('hidden'); return; }
+  suggestTimeout = setTimeout(async () => {
+    $('search-results').classList.remove('hidden');
+    $('search-results').innerHTML = '<p style="color:var(--text2);padding:8px 0">A pesquisar...</p>';
+    const results = await searchPokemonCard(name, '', '');
+    if (results.length === 0) {
+      $('search-results').innerHTML = '<p style="color:var(--text2);padding:8px 0">Nenhum resultado</p>';
+      return;
+    }
+    $('search-results').innerHTML = '';
+    results.slice(0, 6).forEach(card => {
+      const div = document.createElement('div');
+      div.className = 'search-item';
+      div.innerHTML = `
+        <img src="${card.images?.small || ''}" alt="${card.name}" onerror="this.style.display='none'">
+        <div class="si-info">
+          <div class="si-name">${card.name} <span style="color:var(--accent2);font-size:11px">${card.number || ''}</span></div>
+          <div class="si-meta">${card.set?.name || ''}</div>
+        </div>
+      `;
+      div.addEventListener('click', () => { selectCard(card); });
+      $('search-results').appendChild(div);
+    });
+  }, 350);
+});
+
+// Search by collector number
+async function searchByNumber(number, setCode, cardName) {
+  const resultsEl = $('search-results');
+  resultsEl.classList.remove('hidden');
+  resultsEl.innerHTML = '<p style="color:var(--text2);padding:8px 0">🔍 A pesquisar...</p>';
+  const codeToPtcgo = { 'SVI': 'SV1' };
+  const apiNum = parseCollectorNumber(number);
+  let cards;
+  if (cardName) {
+    const q = `name:"${cardName}" number:"${apiNum}"`;
+    try {
+      const r = await fetch(`${POKEMON_TCG_API}/cards?q=${encodeURIComponent(q)}`);
+      if (r.ok) cards = (await r.json()).data || [];
+    } catch {}
+  }
+  if (!cards || cards.length === 0) {
+    if (setCode) {
+      const ptcgo = codeToPtcgo[setCode] || setCode;
+      const q = `number:"${apiNum}" set.ptcgoCode:"${ptcgo}"`;
+      try {
+        const r = await fetch(`${POKEMON_TCG_API}/cards?q=${encodeURIComponent(q)}`);
+        if (r.ok) cards = (await r.json()).data || [];
+      } catch {}
+    }
+  }
+  if (!cards || cards.length === 0) {
+    if (cardName) {
+      try {
+        const r = await fetch(`${POKEMON_TCG_API}/cards?q=${encodeURIComponent('name:"' + cardName + '"')}`);
+        if (r.ok) cards = (await r.json()).data || [];
+      } catch {}
+    }
+  }
+  if (!cards || cards.length === 0) {
+    cards = await searchCardByNumber(number);
+  }
+  if (cards.length === 0) {
+    resultsEl.innerHTML = '<p style="color:var(--text2);padding:8px 0">Nenhum resultado para este número</p>';
+    return;
+  }
+  resultsEl.innerHTML = '';
+  cards.slice(0, 8).forEach(card => {
+    const div = document.createElement('div');
+    div.className = 'search-item';
+    div.innerHTML = `
+      <img src="${card.images?.small || ''}" alt="${card.name}" onerror="this.style.display='none'">
+      <div class="si-info">
+        <div class="si-name">${card.name} <span style="color:var(--accent2)">${card.number || ''}</span></div>
+        <div class="si-meta">${card.set?.name || ''} ${card.rarity ? '• ' + card.rarity : ''}</div>
+      </div>
+    `;
+    div.addEventListener('click', () => { selectCard(card); });
+    resultsEl.appendChild(div);
+  });
+}
+
+// Search button
+$('btn-search').addEventListener('click', async () => {
+  const name = $('field-name').value.trim();
+  const set = $('field-set').value.trim();
+  const number = $('field-number').value.trim();
+  const resultsEl = $('search-results');
+
+  if (!name && !number) { toast('Preencha o nome ou número da carta'); return; }
+
+  resultsEl.innerHTML = '<p style="color:var(--text2)">A pesquisar...</p>';
+  resultsEl.classList.remove('hidden');
+
+  let results;
+  if (number && !name) {
+    results = await searchCardByNumber(number);
+  } else {
+    results = await searchPokemonCard(name, set, number);
+  }
+
+  if (results.length === 0) {
+    resultsEl.innerHTML = '<p style="color:var(--text2);padding:12px 0">Nenhum resultado. Tente outro nome.</p>';
+    return;
+  }
+
+  resultsEl.innerHTML = '';
+  results.forEach(card => {
+    const div = document.createElement('div');
+    div.className = 'search-item';
+    div.innerHTML = `
+      <img src="${card.images?.small || ''}" alt="${card.name}" onerror="this.style.display='none'">
+      <div class="si-info">
+        <div class="si-name">${card.name} <span style="color:var(--accent2);font-size:11px">${card.number || ''}</span></div>
+        <div class="si-meta">${card.set?.name || ''} ${card.rarity ? '• ' + card.rarity : ''}</div>
+      </div>
+    `;
+    div.addEventListener('click', () => {
+      selectCard(card);
+    });
+    resultsEl.appendChild(div);
+  });
+});
+
+function selectCard(card) {
+  $('field-name').value = card.name;
+  $('field-set').value = card.set?.name || '';
+  $('field-number').value = card.number || '';
+  $('search-results').innerHTML = `<p style="color:var(--accent2);padding:8px 0">✅ Carta selecionada: ${card.name}</p>`;
+
+  pendingCard = {
+    name: card.name,
+    set: card.set?.name || '',
+    number: card.number || '',
+    image: card.images?.large || ''
+  };
+
+  $('card-details').classList.remove('hidden');
+}
+
+// Add card
+$('btn-add').addEventListener('click', () => {
+  const name = $('field-name').value.trim();
+  if (!name) { toast('Nome da carta é obrigatório'); return; }
+
+  const card = {
+    name: name,
+    set: $('field-set').value.trim(),
+    number: $('field-number').value.trim(),
+    condition: $('field-condition').value,
+    language: $('field-language').value,
+    price: parseFloat($('field-price').value) || 0,
+    quantity: parseInt($('field-qty').value) || 1,
+    holo: $('field-holo').checked,
+    comments: '',
+    addedAt: new Date().toISOString()
+  };
+
+  cards.push(card);
+  saveCards();
+  renderList();
+  closeAllPanels();
+  clearReviewPanel();
+  toast(`✅ "${name}" adicionado à lista`);
+});
+
+// Navigation
+$('btn-list').addEventListener('click', () => {
+  renderList();
+  openPanel('panel-list');
+});
+
+$('close-review').addEventListener('click', () => {
+  closeAllPanels();
+  clearReviewPanel();
+});
+
+$('close-list').addEventListener('click', closeAllPanels);
+$('modal-overlay').addEventListener('click', closeAllPanels);
+
+$('btn-scan-more').addEventListener('click', () => {
+  closeAllPanels();
+  clearReviewPanel();
+});
+
+// Export CSV
+$('btn-export-csv').addEventListener('click', () => {
+  if (cards.length === 0) { toast('Lista vazia'); return; }
+  const opts = $('export-options');
+  opts.classList.toggle('hidden');
+});
+
+document.querySelectorAll('[data-format]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const fmt = btn.dataset.format;
+    let content, filename;
+    const date = formatDate();
+
+    switch (fmt) {
+      case 'simple':
+        content = generateCSVSimple();
+        filename = `pokescanner_${date}.csv`;
+        break;
+      case 'cardmarket':
+        content = generateCSVCardmarket();
+        filename = `cardmarket_bulk_${date}.csv`;
+        break;
+      case 'tcgpt':
+        content = generateCSVTCGPowerTools();
+        filename = `tcgpowertools_${date}.csv`;
+        break;
+    }
+
+    downloadCSV(content, filename);
+    toast(`📥 Exportado: ${filename}`);
+    $('export-options').classList.add('hidden');
+  });
+});
+
+// Clear list
+$('btn-clear').addEventListener('click', () => {
+  if (cards.length === 0) return;
+  if (confirm('Tem a certeza? Todas as cartas serão removidas.')) {
+    cards = [];
+    saveCards();
+    renderList();
+    toast('Lista limpa');
+  }
+});
+
+// Help / Settings
+$('btn-help').addEventListener('click', () => {
+  // Sync current API key into input field
+  $('input-api-key').value = getApiKey();
+  $('api-key-status').classList.add('hidden');
+  openPanel('panel-help');
+});
+
+$('close-help').addEventListener('click', closeAllPanels);
+
+$('btn-save-key').addEventListener('click', () => {
+  const key = $('input-api-key').value.trim();
+  if (!key) { toast('Insere uma API key válida'); return; }
+  setApiKey(key);
+  const status = $('api-key-status');
+  status.classList.remove('hidden');
+  status.textContent = '✅ API key guardada com sucesso!';
+  status.style.color = 'var(--accent2)';
+  toast('🔑 API key do OCR.space guardada');
+});
+
+// Privacy
+$('btn-accept-privacy').addEventListener('click', () => {
+  localStorage.setItem(PRIVACY_KEY, 'true');
+  $('privacy-overlay').classList.add('hidden');
+});
+
+// JSON export
+$('btn-export-json').addEventListener('click', exportJSON);
+
+// JSON import
+$('file-import-json').addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (file) importJSON(file);
+  e.target.value = '';
+});
+
+// Load version
+fetch('version.json')
+  .then(r => r.json())
+  .then(v => {
+    const el = $('app-version');
+    if (el) el.textContent = v.version;
+  })
+  .catch(() => {});
+
+// ─── Init ─────────────────────────────────────────────────
+async function init() {
+  loadCards();
+  renderList();
+  checkPrivacy();
+
+  if (!getApiKey()) {
+    setTimeout(() => {
+      toast('🔑 Configura a API key do OCR.space na Ajuda', 4000);
+    }, 1500);
+  }
+
+  await initCamera();
+
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.register('sw.js');
+      console.log('SW registered');
+
+      reg.addEventListener('updatefound', () => {
+        const newSW = reg.installing;
+        newSW.addEventListener('statechange', () => {
+          if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+            console.log('New SW installed, reloading...');
+            window.location.reload();
+          }
+        });
+      });
+    } catch (e) {
+      console.log('SW registration failed:', e);
+    }
+  }
+
+  console.log('PokéScanner ready');
+}
+
+// Listen for SW lifecycle messages (registered before init to avoid race)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data?.type === 'SW_UPDATED') {
+      console.log('SW updated, reloading...');
+      window.location.reload();
+    }
+  });
+}
+
+init();
