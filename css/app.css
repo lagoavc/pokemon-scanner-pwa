@@ -33,7 +33,10 @@ header h1{font-size:18px;font-weight:700;color:var(--accent);letter-spacing:1px}
 .corner.br{bottom:30%;right:8%;border-width:0 3px 3px 0;border-radius:0 0 8px 0}
 
 /* Capture Button */
-#camera-controls{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:5}
+#camera-controls{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);z-index:5;display:flex;align-items:center;gap:20px}
+.fs-btn{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.12);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity 0.2s,transform 0.2s}
+.fs-btn svg{display:block}
+.fs-btn:active{opacity:0.6;transform:scale(0.9)}
 .capture-btn{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,0.15);border:4px solid rgba(255,255,255,0.6);cursor:pointer;position:relative;transition:transform 0.15s}
 .capture-btn::after{content:'';position:absolute;inset:6px;border-radius:50%;background:#fff;transition:transform 0.15s}
 .capture-btn:active{transform:scale(0.92)}
@@ -140,6 +143,11 @@ header h1{font-size:18px;font-weight:700;color:var(--accent);letter-spacing:1px}
 .api-key-row .btn{flex-shrink:0;padding:10px 16px;font-size:13px}
 #api-key-status{padding:8px 12px;border-radius:8px;font-size:13px;font-weight:500;margin-top:8px}
 .help-version{margin-top:24px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);text-align:center;font-size:11px;color:var(--text2)}
+.sv-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.sv-table th,.sv-table td{padding:4px 8px;text-align:left;border:1px solid rgba(255,255,255,0.08)}
+.sv-table th{background:rgba(255,255,255,0.05);color:var(--accent);font-weight:600}
+.sv-table td{color:var(--text)}
+.sv-table code{font-size:11px;color:var(--accent2)}
 
 /* Privacy Overlay */
 #privacy-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px}

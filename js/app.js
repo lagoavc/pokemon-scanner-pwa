@@ -227,16 +227,59 @@ async function searchCardByNumber(number) {
 }
 
 // ─── TCGdex Prices ────────────────────────────────────────
-async function fetchTCGdexPrice(cardId) {
+async function fetchTCGdexPrice(cardId, cardName, cardNumber) {
   if (!cardId) return null;
-  try {
-    const r = await fetch(`${TCGDEX_API}/cards/${cardId}`);
-    if (!r.ok) return null;
-    const data = await r.json();
-    return data.pricing?.cardmarket || null;
-  } catch {
-    return null;
+
+  const tryFetch = async (id) => {
+    try {
+      const r = await fetch(`${TCGDEX_API}/cards/${id}`);
+      if (!r.ok) return null;
+      const data = await r.json();
+      return data.pricing?.cardmarket || null;
+    } catch {
+      return null;
+    }
+  };
+
+  let pricing = await tryFetch(cardId);
+  if (pricing) return pricing;
+
+  // Try alternative ID formats (zero-padded set, 3-digit number)
+  const parts = cardId.split('-');
+  if (parts.length === 2) {
+    const altIds = [];
+    const paddedSet = parts[0].replace(/^(sv)(\d)$/i, '$10$2');
+    if (paddedSet !== parts[0]) {
+      altIds.push(`${paddedSet}-${parts[1]}`);
+      altIds.push(`${paddedSet}-${parts[1].padStart(3, '0')}`);
+    }
+    const paddedNum = parts[1].padStart(3, '0');
+    if (paddedNum !== parts[1]) {
+      altIds.push(`${parts[0]}-${paddedNum}`);
+    }
+    for (const id of altIds) {
+      pricing = await tryFetch(id);
+      if (pricing) return pricing;
+    }
   }
+
+  // Fallback: search by name + number
+  if (cardName && cardNumber) {
+    try {
+      const r = await fetch(`${TCGDEX_API}/cards?name=${encodeURIComponent(cardName)}`);
+      if (r.ok) {
+        const results = await r.json();
+        const num = String(cardNumber).replace(/^0+/, '');
+        const match = results.find(c => String(c.localId).replace(/^0+/, '') === num);
+        if (match) {
+          pricing = await tryFetch(match.id);
+          if (pricing) return pricing;
+        }
+      }
+    } catch {}
+  }
+
+  return null;
 }
 
 function updatePriceFromPricing(holo) {
@@ -385,7 +428,7 @@ async function refreshPrices() {
   for (let i = 0; i < toRefresh.length; i += batchSize) {
     const batch = toRefresh.slice(i, i + batchSize);
     const results = await Promise.allSettled(
-      batch.map(c => fetchTCGdexPrice(`${c.setId}-${parseCollectorNumber(c.number)}`))
+      batch.map(c => fetchTCGdexPrice(`${c.setId}-${parseCollectorNumber(c.number)}`, c.name, c.number))
     );
     results.forEach((result, idx) => {
       if (result.status === 'fulfilled' && result.value) {
@@ -485,7 +528,7 @@ function showCardDetail(index) {
 
   // Refresh price if > 1h since last update
   if (needsPriceRefresh(c.lastPriceUpdate) && c.setId && c.number) {
-    fetchTCGdexPrice(`${c.setId}-${parseCollectorNumber(c.number)}`).then(pricing => {
+    fetchTCGdexPrice(`${c.setId}-${parseCollectorNumber(c.number)}`, c.name, c.number).then(pricing => {
       if (pricing) {
         c.cardmarketPrice = pricing.avg ?? null;
         c.cardmarketPriceHolo = pricing['avg-holo'] ?? null;
@@ -595,6 +638,35 @@ $('btn-capture').addEventListener('click', async () => {
     toast(`⚠️ ${e.message}`);
   }
   $('field-name').focus();
+});
+
+// Fullscreen button (two-click fallback)
+let fsFallbackTimer;
+$('btn-fullscreen').addEventListener('click', () => {
+  if (fsFallbackTimer) {
+    clearTimeout(fsFallbackTimer);
+    fsFallbackTimer = null;
+    return;
+  }
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else {
+    document.documentElement.requestFullscreen()
+      .then(() => {})
+      .catch(() => {
+        fsFallbackTimer = setTimeout(() => { fsFallbackTimer = null; }, 3000);
+        toast('Prima o botão de ecrã inteiro do seu navegador', 3000);
+      });
+  }
+});
+document.addEventListener('fullscreenchange', () => {
+  const active = !!document.fullscreenElement;
+  const btn = $('btn-fullscreen');
+  if (active) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="26" height="26" fill="#fff"><path d="M8 3v3H3v2h5V3h2zm8 0v5h-2V5h-3V3h5zM3 16v-2h5v5H6v-3H3zm16-2h2v5h-5v-2h3v-3z"/></svg>';
+  } else {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="26" height="26" fill="#fff"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>';
+  }
 });
 
 // File input fallback
@@ -782,7 +854,7 @@ function selectCard(card) {
 
   // Fetch Cardmarket price from TCGdex
   lastPricing = null;
-  fetchTCGdexPrice(card.id).then(pricing => {
+  fetchTCGdexPrice(card.id, card.name, card.number).then(pricing => {
     if (pricing) {
       lastPricing = pricing;
       const holo = $('field-holo').checked;

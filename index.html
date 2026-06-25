@@ -32,6 +32,11 @@
     </div>
     <div id="camera-controls">
       <button id="btn-capture" class="capture-btn" aria-label="Capturar"></button>
+      <button id="btn-fullscreen" class="fs-btn" aria-label="Ecrã inteiro">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="#fff">
+          <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+        </svg>
+      </button>
     </div>
     <div id="camera-error" class="hidden">
       <p>&#9888; Câmara indisponível</p>
@@ -255,6 +260,28 @@
           <li><strong>Pok&eacute;mon TCG API</strong> &mdash; para pesquisar detalhes das cartas</li>
         </ul>
         <p>Nenhuma imagem ou dado &eacute; guardado em servidores nossos. A sua API key do OCR.space fica apenas no seu dispositivo.</p>
+      </section>
+
+      <section class="help-section">
+        <h3>&#127921; Códigos de Expansões SV</h3>
+        <p>Para cartas da era <strong>Scarlet &amp; Violet</strong>, o TCGdex usa <code>sv01</code> (com zero) em vez de <code>sv1</code>. A tabela abaixo mostra a correspondência:</p>
+        <table class="sv-table">
+          <tr><th>Expansão</th><th>API</th><th>TCGdex</th></tr>
+          <tr><td>Scarlet &amp; Violet</td><td>sv1</td><td>sv01</td></tr>
+          <tr><td>Paldea Evolved</td><td>sv2</td><td>sv02</td></tr>
+          <tr><td>Obsidian Flames</td><td>sv3</td><td>sv03</td></tr>
+          <tr><td>151</td><td>sv3pt5</td><td>sv03.5</td></tr>
+          <tr><td>Paradox Rift</td><td>sv4</td><td>sv04</td></tr>
+          <tr><td>Paldean Fates</td><td>sv4pt5</td><td>sv04.5</td></tr>
+          <tr><td>Temporal Forces</td><td>sv5</td><td>sv05</td></tr>
+          <tr><td>Twilight Masquerade</td><td>sv6</td><td>sv06</td></tr>
+          <tr><td>Shrouded Fable</td><td>sv6pt5</td><td>sv06.5</td></tr>
+          <tr><td>Stellar Crown</td><td>sv7</td><td>sv07</td></tr>
+          <tr><td>Surging Sparks</td><td>sv8</td><td>sv08</td></tr>
+          <tr><td>Prismatic Evolutions</td><td>sv8pt5</td><td>sv08.5</td></tr>
+          <tr><td>Journey Together</td><td>sv9</td><td>sv09</td></tr>
+          <tr><td>Destined Rivals</td><td>sv10</td><td>sv10</td></tr>
+        </table>
       </section>
 
       <section class="help-section help-version">
