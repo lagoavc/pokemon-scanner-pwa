@@ -10,6 +10,8 @@ let cards = [];
 let pendingCard = null;
 let lastPricing = null;
 let editingIndex = -1;
+let cameraStream = null;
+let cameraStoppedForBattery = false;
 
 const $ = id => document.getElementById(id);
 const $$ = (sel, ctx = document) => ctx.querySelector(sel);
@@ -34,6 +36,7 @@ function closeAllPanels() {
   $$$('.slide-panel.open').forEach(p => p.classList.remove('open'));
   $('modal-overlay').classList.add('hidden');
   editingIndex = -1;
+  if (cameraStoppedForBattery) startCamera();
 }
 
 function formatDate() {
@@ -51,9 +54,20 @@ function setApiKey(key) {
 // ─── Camera ──────────────────────────────────────────────
 let cameraStream = null;
 
-async function initCamera() {
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+    cameraStoppedForBattery = true;
+  }
+  $('video-camera').srcObject = null;
+}
+
+async function startCamera() {
   const video = $('video-camera');
   const errEl = $('camera-error');
+  cameraStoppedForBattery = false;
+  stopCamera();
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -68,6 +82,9 @@ async function initCamera() {
     errEl.classList.remove('hidden');
   }
 }
+
+// Alias for backward compat
+const initCamera = startCamera;
 
 function capturePhoto() {
   const video = $('video-camera');
@@ -630,6 +647,7 @@ $('btn-capture').addEventListener('click', async () => {
   if (!getApiKey()) { toast('🔑 Configura a API key na Ajuda primeiro'); openPanel('panel-help'); return; }
   const imgData = capturePhoto();
   if (!imgData) { toast('Câmara não disponível'); return; }
+  stopCamera();
   toast('📡 OCR em curso...');
   try {
     showReview(imgData);
