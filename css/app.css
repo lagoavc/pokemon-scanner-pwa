@@ -90,10 +90,29 @@ header h1{font-size:18px;font-weight:700;color:var(--accent);letter-spacing:1px}
 .search-item .si-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search-item .si-meta{font-size:12px;color:var(--text2)}
 
-/* Table */
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:6px 4px;color:var(--text2);font-weight:500;border-bottom:1px solid rgba(255,255,255,0.08);white-space:nowrap}
-td{padding:8px 4px;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle}
+/* Collection Grid */
+.collection-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:4px 0}
+.card-tile{background:var(--surface2);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:transform 0.15s,box-shadow 0.15s;box-shadow:0 2px 8px rgba(0,0,0,0.2)}
+.card-tile:active{transform:scale(0.97)}
+.ct-img{width:100%;aspect-ratio:5/7;background:var(--surface);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.ct-img img{width:100%;height:100%;object-fit:cover}
+.ct-placeholder{font-size:28px;color:var(--text2)}
+.ct-info{padding:8px}
+.ct-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}
+.ct-meta{font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ct-price{font-size:12px;color:var(--accent2);font-weight:600;margin-top:4px}
+
+/* Detail Panel */
+.detail-body{padding-top:4px}
+.dt-image-wrap{width:100%;max-height:320px;overflow:hidden;border-radius:var(--radius);background:var(--surface2);display:flex;align-items:center;justify-content:center;margin-bottom:16px}
+.dt-image-wrap img{max-width:100%;max-height:320px;object-fit:contain}
+.dt-fields{display:flex;flex-direction:column;gap:10px}
+.dt-row{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:8px;font-size:13px}
+.dt-row label{color:var(--text2);font-weight:500;flex-shrink:0}
+.dt-row span{color:var(--text);font-weight:600;text-align:right;word-break:break-word;max-width:65%}
+.dt-price-row span{color:var(--accent2);font-size:16px;font-weight:700}
+.dt-muted span{font-size:11px;color:var(--text2);font-weight:400}
+
 .delete-btn{background:none;border:none;color:var(--danger);font-size:18px;cursor:pointer;padding:0 4px}
 
 .empty-state{text-align:center;color:var(--text2);padding:32px 0;font-size:15px}

@@ -4,10 +4,12 @@ const TCGDEX_API = 'https://api.tcgdex.net/v2/en';
 const STORAGE_KEY = 'pokescanner_cards';
 const API_KEY_STORAGE = 'ocr_api_key';
 const PRIVACY_KEY = 'privacy_accepted';
+const PRICE_REFRESH_HOURS = 1;
 
 let cards = [];
 let pendingCard = null;
 let lastPricing = null;
+let editingIndex = -1;
 
 const $ = id => document.getElementById(id);
 const $$ = (sel, ctx = document) => ctx.querySelector(sel);
@@ -31,6 +33,7 @@ function openPanel(id) {
 function closeAllPanels() {
   $$$('.slide-panel.open').forEach(p => p.classList.remove('open'));
   $('modal-overlay').classList.add('hidden');
+  editingIndex = -1;
 }
 
 function formatDate() {
@@ -41,7 +44,6 @@ function formatDate() {
 function getApiKey() {
   return localStorage.getItem(API_KEY_STORAGE) || '';
 }
-
 function setApiKey(key) {
   localStorage.setItem(API_KEY_STORAGE, key);
 }
@@ -112,7 +114,6 @@ async function ocrSpace(imageData, label) {
   if (!apiKey) {
     throw new Error('API key do OCR.space não configurada. Abra Ajuda > Definições.');
   }
-
   const body = new URLSearchParams();
   body.append('apikey', apiKey);
   body.append('base64Image', imageData);
@@ -126,13 +127,10 @@ async function ocrSpace(imageData, label) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body
   });
-
   if (r.status === 403 || r.status === 429) {
     throw new Error('Limite do OCR.space atingido (10 requests/dia no free). Usa outra chave ou aguarda.');
   }
-  if (!r.ok) {
-    throw new Error(`OCR.space HTTP ${r.status}`);
-  }
+  if (!r.ok) throw new Error(`OCR.space HTTP ${r.status}`);
 
   const data = await r.json();
   if (data.IsErroredOnProcessing || data.ErrorMessage) {
@@ -143,7 +141,6 @@ async function ocrSpace(imageData, label) {
     }
     throw new Error(msg);
   }
-
   let text = data.ParsedResults?.[0]?.ParsedText || '';
   text = text.replace(/\r/g, '');
   console.log(`[OCR ${label}]`, text.slice(0, 300));
@@ -162,7 +159,6 @@ function parseOCROutput(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const result = { name: text, number: '', set: '' };
   const langCodes = new Set(['ENG','JPN','FRA','GER','ITA','SPA','CHS','CHT','KOR','POR']);
-
   for (let i = 0; i < lines.length; i++) {
     let m = lines[i].match(/(\d{2,3}\/\d{2,4})/);
     if (!m) {
@@ -176,14 +172,11 @@ function parseOCROutput(text) {
     if (codes) {
       for (const c of codes) {
         const s = c.slice(0, 3);
-        if (!langCodes.has(s) && s !== result.number.split('/')[0]) {
-          result.set = s; break;
-        }
+        if (!langCodes.has(s) && s !== result.number.split('/')[0]) { result.set = s; break; }
       }
     }
     if (!result.set) {
-      const ignoreWords = new Set(['WEA','RES','RET','BAS','STA','POK','TRA','ATT','ABI','DAR','FIG',
-        'WAT','GRA','LIG','PSY','MET','FGT','COL','FRE','DRA','FAI']);
+      const ignoreWords = new Set(['WEA','RES','RET','BAS','STA','POK','TRA','ATT','ABI','DAR','FIG','WAT','GRA','LIG','PSY','MET','FGT','COL','FRE','DRA','FAI']);
       for (let offset = 1; offset <= 5; offset++) {
         for (const j of [i - offset, i + offset]) {
           if (j < 0 || j >= lines.length || j === i) continue;
@@ -200,7 +193,6 @@ function parseOCROutput(text) {
     }
     break;
   }
-
   return result;
 }
 
@@ -210,9 +202,7 @@ async function searchPokemonCard(name, set, number) {
   if (name) parts.push(`name:"${name}"`);
   if (set && set.length > 2) parts.push(`set.name:"${set}"`);
   if (number) parts.push(`number:"${number}"`);
-
   if (parts.length === 0) return [];
-
   const q = parts.join(' ');
   try {
     const r = await fetch(`${POKEMON_TCG_API}/cards?q=${encodeURIComponent(q)}&pageSize=10`);
@@ -311,16 +301,12 @@ function downloadCSV(content, filename) {
 // ─── JSON Backup / Restore ────────────────────────────────
 function exportJSON() {
   if (cards.length === 0) { toast('Lista vazia'); return; }
-  const data = {
-    version: '1.0.0',
-    exportedAt: new Date().toISOString(),
-    cards: cards
-  };
+  const data = { version: '1.0.0', exportedAt: new Date().toISOString(), cards: cards };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `pokescanner_backup_${formatDate()}.json`;
+  a.download = `pokescanner_${formatDate()}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -335,11 +321,8 @@ function importJSON(file) {
       const data = JSON.parse(e.target.result);
       const imported = data.cards || (Array.isArray(data) ? data : []);
       if (!imported.length) { toast('Nenhuma carta encontrada no ficheiro'); return; }
-
-      const count = imported.length;
       if (cards.length > 0) {
-        const merge = confirm(`Já tens ${cards.length} cartas. Desejas substituir ou adicionar?\nOK = Substituir | Cancelar = Adicionar`);
-        if (merge) {
+        if (confirm(`Já tens ${cards.length} cartas. OK = Substituir | Cancelar = Adicionar`)) {
           cards = imported;
         } else {
           cards = cards.concat(imported);
@@ -347,30 +330,80 @@ function importJSON(file) {
       } else {
         cards = imported;
       }
-
+      migrateCards();
       saveCards();
-      renderList();
-      toast(`✅ ${count} carta(s) importada(s)`);
-    } catch (err) {
+      renderCollection();
+      toast(`✅ ${imported.length} carta(s) importada(s)`);
+    } catch {
       toast('❌ Ficheiro JSON inválido');
-      console.error('Import error:', err);
     }
   };
   reader.readAsText(file);
 }
 
-// ─── Persistence ──────────────────────────────────────────
+// ─── Persistence & Migration ──────────────────────────────
 function saveCards() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
+}
+
+function migrateCard(c) {
+  if (c.image === undefined) c.image = '';
+  if (c.setId === undefined) c.setId = '';
+  if (c.cardmarketPrice === undefined) c.cardmarketPrice = null;
+  if (c.cardmarketPriceHolo === undefined) c.cardmarketPriceHolo = null;
+  if (c.lastPriceUpdate === undefined) c.lastPriceUpdate = null;
+  return c;
+}
+
+function migrateCards() {
+  cards = cards.map(migrateCard);
 }
 
 function loadCards() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     cards = stored ? JSON.parse(stored) : [];
+    migrateCards();
   } catch {
     cards = [];
   }
+}
+
+// ─── Price Refresh ────────────────────────────────────────
+function needsPriceRefresh(lastUpdate) {
+  if (!lastUpdate) return true;
+  const diff = Date.now() - new Date(lastUpdate).getTime();
+  return diff > PRICE_REFRESH_HOURS * 60 * 60 * 1000;
+}
+
+async function refreshPrices() {
+  const toRefresh = cards.filter(c => needsPriceRefresh(c.lastPriceUpdate) && c.setId && c.number);
+  if (toRefresh.length === 0) return;
+
+  console.log(`Refreshing prices for ${toRefresh.length} cards...`);
+  const batchSize = 5;
+  for (let i = 0; i < toRefresh.length; i += batchSize) {
+    const batch = toRefresh.slice(i, i + batchSize);
+    const results = await Promise.allSettled(
+      batch.map(c => fetchTCGdexPrice(`${c.setId}-${parseCollectorNumber(c.number)}`))
+    );
+    results.forEach((result, idx) => {
+      if (result.status === 'fulfilled' && result.value) {
+        const pricing = result.value;
+        const cardIdx = cards.indexOf(batch[idx]);
+        if (cardIdx >= 0) {
+          cards[cardIdx].cardmarketPrice = pricing.avg ?? null;
+          cards[cardIdx].cardmarketPriceHolo = pricing['avg-holo'] ?? null;
+          cards[cardIdx].lastPriceUpdate = new Date().toISOString();
+        }
+      }
+    });
+    if (i + batchSize < toRefresh.length) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  saveCards();
+  console.log('Price refresh complete');
 }
 
 // ─── Privacy ──────────────────────────────────────────────
@@ -380,48 +413,111 @@ function checkPrivacy() {
   }
 }
 
-// ─── UI Logic ─────────────────────────────────────────────
-function renderList() {
-  const tbody = $('list-tbody');
+// ─── Collection UI ────────────────────────────────────────
+function renderCollection() {
+  const grid = $('collection-grid');
   const empty = $('empty-msg');
-  const content = $('list-content');
+  const header = $('list-content');
 
-  tbody.innerHTML = '';
+  grid.innerHTML = '';
   if (cards.length === 0) {
     empty.classList.remove('hidden');
-    content.classList.add('hidden');
+    header.classList.add('hidden');
     $('count-badge').textContent = '0';
     return;
   }
-
   empty.classList.add('hidden');
-  content.classList.remove('hidden');
+  header.classList.remove('hidden');
   $('count-badge').textContent = cards.length;
 
   cards.forEach((c, i) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeCSV(c.name)}</td>
-      <td style="max-width:50px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeCSV(c.set)}</td>
-      <td>${escapeCSV(c.number)}</td>
-      <td>${escapeCSV(c.condition)}</td>
-      <td>${escapeCSV(c.language.slice(0, 3))}</td>
-      <td>€${c.price.toFixed(2)}</td>
-      <td>${c.quantity}</td>
-      <td><button class="delete-btn" data-index="${i}">&times;</button></td>
-    `;
-    tbody.appendChild(tr);
-  });
+    const div = document.createElement('div');
+    div.className = 'card-tile';
+    div.setAttribute('data-index', i);
 
-  $$$('.delete-btn', tbody).forEach(btn => {
-    btn.addEventListener('click', () => {
-      cards.splice(parseInt(btn.dataset.index), 1);
-      saveCards();
-      renderList();
-    });
+    const imgSrc = c.image || '';
+    const price = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
+    const priceStr = price != null ? `€${price.toFixed(2)}` : '';
+
+    div.innerHTML = `
+      <div class="ct-img">${imgSrc ? `<img src="${imgSrc}" alt="${escapeCSV(c.name)}" loading="lazy">` : '<div class="ct-placeholder">?</div>'}</div>
+      <div class="ct-info">
+        <div class="ct-name">${escapeCSV(c.name)}</div>
+        <div class="ct-meta">${escapeCSV(c.set)} ${escapeCSV(c.number)}</div>
+        <div class="ct-price">${priceStr}</div>
+      </div>
+    `;
+    div.addEventListener('click', () => showCardDetail(i));
+    grid.appendChild(div);
   });
 }
 
+function showCardDetail(index) {
+  const c = cards[index];
+  if (!c) return;
+
+  $('dt-image').src = c.image || '';
+  $('dt-name').textContent = c.name;
+  $('dt-set').textContent = c.set;
+  $('dt-number').textContent = c.number;
+  $('dt-condition').textContent = c.condition;
+  $('dt-language').textContent = c.language;
+  $('dt-quantity').textContent = c.quantity;
+
+  const holoLabel = c.holo ? 'Yes' : 'No';
+  const holoDisplay = document.querySelector('#dt-holo-row');
+  if (holoDisplay) holoDisplay.textContent = holoLabel;
+
+  const userPrice = c.price ?? 0;
+  const cmPrice = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
+  const cmPriceStr = cmPrice != null ? `€${cmPrice.toFixed(2)}` : '—';
+
+  $('dt-user-price').innerHTML = `€${userPrice.toFixed(2)}`;
+  $('dt-cm-price').innerHTML = `${cmPriceStr}`;
+
+  const lastUpd = c.lastPriceUpdate ? new Date(c.lastPriceUpdate).toLocaleString() : 'Nunca';
+  $('dt-price-updated').textContent = lastUpd;
+
+  $('detail-delete').dataset.index = index;
+  $('detail-edit').dataset.index = index;
+
+  openPanel('panel-detail');
+}
+
+function editCard(index) {
+  const c = cards[index];
+  if (!c) return;
+  editingIndex = index;
+  closeAllPanels();
+
+  $('field-name').value = c.name;
+  $('field-set').value = c.set;
+  $('field-number').value = c.number;
+  $('field-price').value = c.price.toFixed(2);
+  $('field-qty').value = c.quantity;
+  $('field-condition').value = c.condition;
+  $('field-language').value = c.language;
+  $('field-holo').checked = c.holo;
+  $('search-results').classList.add('hidden');
+  $('card-details').classList.remove('hidden');
+
+  pendingCard = {
+    name: c.name, set: c.set, number: c.number, image: c.image || ''
+  };
+
+  // Pre-fill price from stored Cardmarket data
+  lastPricing = null;
+  if (c.cardmarketPrice != null || c.cardmarketPriceHolo != null) {
+    lastPricing = { avg: c.cardmarketPrice, 'avg-holo': c.cardmarketPriceHolo };
+  }
+
+  // Change button text
+  $('btn-add').textContent = '💾 Guardar Alterações';
+
+  openPanel('panel-review');
+}
+
+// ─── Review Panel UI ───────────────────────────────────────
 function clearReviewPanel() {
   $('field-name').value = '';
   $('field-set').value = '';
@@ -436,6 +532,9 @@ function clearReviewPanel() {
   $('card-details').classList.add('hidden');
   $('captured-img').src = '';
   pendingCard = null;
+  lastPricing = null;
+  editingIndex = -1;
+  $('btn-add').textContent = '✅ Adicionar à Coleção';
 }
 
 function showReview(imageData) {
@@ -448,7 +547,6 @@ function showReview(imageData) {
 // Capture with OCR
 $('btn-capture').addEventListener('click', async () => {
   if (!getApiKey()) { toast('🔑 Configura a API key na Ajuda primeiro'); openPanel('panel-help'); return; }
-
   const imgData = capturePhoto();
   if (!imgData) { toast('Câmara não disponível'); return; }
   toast('📡 OCR em curso...');
@@ -467,7 +565,6 @@ $('btn-capture').addEventListener('click', async () => {
         break;
       }
     }
-
     if (ocr && ocr.number) {
       $('field-number').value = ocr.number;
       searchByNumber(ocr.number, ocr.set, $('field-name').value);
@@ -486,7 +583,6 @@ $('btn-capture').addEventListener('click', async () => {
 // File input fallback
 $('file-input').addEventListener('change', async (e) => {
   if (!getApiKey()) { toast('🔑 Configura a API key na Ajuda primeiro'); openPanel('panel-help'); return; }
-
   const file = e.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
@@ -529,7 +625,7 @@ $('file-input').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
-// Auto-suggest as user types
+// Auto-suggest
 let suggestTimeout = null;
 $('field-name').addEventListener('input', () => {
   clearTimeout(suggestTimeout);
@@ -560,48 +656,48 @@ $('field-name').addEventListener('input', () => {
   }, 350);
 });
 
-// Search by collector number
+// Search by number
 async function searchByNumber(number, setCode, cardName) {
   const resultsEl = $('search-results');
   resultsEl.classList.remove('hidden');
   resultsEl.innerHTML = '<p style="color:var(--text2);padding:8px 0">🔍 A pesquisar...</p>';
   const codeToPtcgo = { 'SVI': 'SV1' };
   const apiNum = parseCollectorNumber(number);
-  let cards;
+  let cardsRes;
   if (cardName) {
     const q = `name:"${cardName}" number:"${apiNum}"`;
     try {
       const r = await fetch(`${POKEMON_TCG_API}/cards?q=${encodeURIComponent(q)}`);
-      if (r.ok) cards = (await r.json()).data || [];
+      if (r.ok) cardsRes = (await r.json()).data || [];
     } catch {}
   }
-  if (!cards || cards.length === 0) {
+  if (!cardsRes || cardsRes.length === 0) {
     if (setCode) {
       const ptcgo = codeToPtcgo[setCode] || setCode;
       const q = `number:"${apiNum}" set.ptcgoCode:"${ptcgo}"`;
       try {
         const r = await fetch(`${POKEMON_TCG_API}/cards?q=${encodeURIComponent(q)}`);
-        if (r.ok) cards = (await r.json()).data || [];
+        if (r.ok) cardsRes = (await r.json()).data || [];
       } catch {}
     }
   }
-  if (!cards || cards.length === 0) {
+  if (!cardsRes || cardsRes.length === 0) {
     if (cardName) {
       try {
         const r = await fetch(`${POKEMON_TCG_API}/cards?q=${encodeURIComponent('name:"' + cardName + '"')}`);
-        if (r.ok) cards = (await r.json()).data || [];
+        if (r.ok) cardsRes = (await r.json()).data || [];
       } catch {}
     }
   }
-  if (!cards || cards.length === 0) {
-    cards = await searchCardByNumber(number);
+  if (!cardsRes || cardsRes.length === 0) {
+    cardsRes = await searchCardByNumber(number);
   }
-  if (cards.length === 0) {
+  if (cardsRes.length === 0) {
     resultsEl.innerHTML = '<p style="color:var(--text2);padding:8px 0">Nenhum resultado para este número</p>';
     return;
   }
   resultsEl.innerHTML = '';
-  cards.slice(0, 8).forEach(card => {
+  cardsRes.slice(0, 8).forEach(card => {
     const div = document.createElement('div');
     div.className = 'search-item';
     div.innerHTML = `
@@ -622,24 +718,19 @@ $('btn-search').addEventListener('click', async () => {
   const set = $('field-set').value.trim();
   const number = $('field-number').value.trim();
   const resultsEl = $('search-results');
-
   if (!name && !number) { toast('Preencha o nome ou número da carta'); return; }
-
   resultsEl.innerHTML = '<p style="color:var(--text2)">A pesquisar...</p>';
   resultsEl.classList.remove('hidden');
-
   let results;
   if (number && !name) {
     results = await searchCardByNumber(number);
   } else {
     results = await searchPokemonCard(name, set, number);
   }
-
   if (results.length === 0) {
     resultsEl.innerHTML = '<p style="color:var(--text2);padding:12px 0">Nenhum resultado. Tente outro nome.</p>';
     return;
   }
-
   resultsEl.innerHTML = '';
   results.forEach(card => {
     const div = document.createElement('div');
@@ -651,9 +742,7 @@ $('btn-search').addEventListener('click', async () => {
         <div class="si-meta">${card.set?.name || ''} ${card.rarity ? '• ' + card.rarity : ''}</div>
       </div>
     `;
-    div.addEventListener('click', () => {
-      selectCard(card);
-    });
+    div.addEventListener('click', () => { selectCard(card); });
     resultsEl.appendChild(div);
   });
 });
@@ -668,7 +757,8 @@ function selectCard(card) {
     name: card.name,
     set: card.set?.name || '',
     number: card.number || '',
-    image: card.images?.large || ''
+    image: card.images?.large || card.images?.small || '',
+    setId: card.set?.id || (card.id ? card.id.split('-')[0] : ''),
   };
 
   $('card-details').classList.remove('hidden');
@@ -694,7 +784,7 @@ $('field-holo').addEventListener('change', () => {
   updatePriceFromPricing($('field-holo').checked);
 });
 
-// Add card
+// Add / Save card
 $('btn-add').addEventListener('click', () => {
   const name = $('field-name').value.trim();
   if (!name) { toast('Nome da carta é obrigatório'); return; }
@@ -709,20 +799,36 @@ $('btn-add').addEventListener('click', () => {
     quantity: parseInt($('field-qty').value) || 1,
     holo: $('field-holo').checked,
     comments: '',
-    addedAt: new Date().toISOString()
+    addedAt: new Date().toISOString(),
+    image: pendingCard?.image || '',
+    setId: pendingCard?.setId || '',
+    cardmarketPrice: lastPricing?.avg ?? null,
+    cardmarketPriceHolo: lastPricing?.['avg-holo'] ?? null,
+    lastPriceUpdate: lastPricing ? new Date().toISOString() : null
   };
 
-  cards.push(card);
+  if (editingIndex >= 0 && editingIndex < cards.length) {
+    // Preserve fields not in the edit form
+    card.addedAt = cards[editingIndex].addedAt;
+    card.comments = cards[editingIndex].comments;
+    card.image = card.image || cards[editingIndex].image;
+    card.setId = card.setId || cards[editingIndex].setId;
+    cards[editingIndex] = card;
+    toast(`✏️ "${name}" atualizada`);
+  } else {
+    cards.push(card);
+    toast(`✅ "${name}" adicionada à coleção`);
+  }
+
   saveCards();
-  renderList();
+  renderCollection();
   closeAllPanels();
   clearReviewPanel();
-  toast(`✅ "${name}" adicionado à lista`);
 });
 
 // Navigation
 $('btn-list').addEventListener('click', () => {
-  renderList();
+  renderCollection();
   openPanel('panel-list');
 });
 
@@ -730,8 +836,8 @@ $('close-review').addEventListener('click', () => {
   closeAllPanels();
   clearReviewPanel();
 });
-
 $('close-list').addEventListener('click', closeAllPanels);
+$('close-detail').addEventListener('click', closeAllPanels);
 $('modal-overlay').addEventListener('click', closeAllPanels);
 
 $('btn-scan-more').addEventListener('click', () => {
@@ -739,9 +845,27 @@ $('btn-scan-more').addEventListener('click', () => {
   clearReviewPanel();
 });
 
+// Detail panel actions
+$('detail-edit').addEventListener('click', () => {
+  const idx = parseInt($('detail-edit').dataset.index);
+  if (!isNaN(idx)) editCard(idx);
+});
+
+$('detail-delete').addEventListener('click', () => {
+  const idx = parseInt($('detail-delete').dataset.index);
+  if (isNaN(idx)) return;
+  if (confirm(`Remover "${cards[idx]?.name}" da coleção?`)) {
+    cards.splice(idx, 1);
+    saveCards();
+    renderCollection();
+    closeAllPanels();
+    toast('🗑️ Carta removida');
+  }
+});
+
 // Export CSV
 $('btn-export-csv').addEventListener('click', () => {
-  if (cards.length === 0) { toast('Lista vazia'); return; }
+  if (cards.length === 0) { toast('Coleção vazia'); return; }
   const opts = $('export-options');
   opts.classList.toggle('hidden');
 });
@@ -751,7 +875,6 @@ document.querySelectorAll('[data-format]').forEach(btn => {
     const fmt = btn.dataset.format;
     let content, filename;
     const date = formatDate();
-
     switch (fmt) {
       case 'simple':
         content = generateCSVSimple();
@@ -766,32 +889,29 @@ document.querySelectorAll('[data-format]').forEach(btn => {
         filename = `tcgpowertools_${date}.csv`;
         break;
     }
-
     downloadCSV(content, filename);
     toast(`📥 Exportado: ${filename}`);
     $('export-options').classList.add('hidden');
   });
 });
 
-// Clear list
+// Clear collection
 $('btn-clear').addEventListener('click', () => {
   if (cards.length === 0) return;
   if (confirm('Tem a certeza? Todas as cartas serão removidas.')) {
     cards = [];
     saveCards();
-    renderList();
-    toast('Lista limpa');
+    renderCollection();
+    toast('Coleção limpa');
   }
 });
 
-// Help / Settings
+// Help
 $('btn-help').addEventListener('click', () => {
-  // Sync current API key into input field
   $('input-api-key').value = getApiKey();
   $('api-key-status').classList.add('hidden');
   openPanel('panel-help');
 });
-
 $('close-help').addEventListener('click', closeAllPanels);
 
 $('btn-save-key').addEventListener('click', () => {
@@ -811,10 +931,8 @@ $('btn-accept-privacy').addEventListener('click', () => {
   $('privacy-overlay').classList.add('hidden');
 });
 
-// JSON export
+// JSON export/import
 $('btn-export-json').addEventListener('click', exportJSON);
-
-// JSON import
 $('file-import-json').addEventListener('change', (e) => {
   const file = e.target.files?.[0];
   if (file) importJSON(file);
@@ -824,22 +942,21 @@ $('file-import-json').addEventListener('change', (e) => {
 // Load version
 fetch('version.json')
   .then(r => r.json())
-  .then(v => {
-    const el = $('app-version');
-    if (el) el.textContent = v.version;
-  })
+  .then(v => { const el = $('app-version'); if (el) el.textContent = v.version; })
   .catch(() => {});
 
 // ─── Init ─────────────────────────────────────────────────
 async function init() {
   loadCards();
-  renderList();
+  renderCollection();
+
+  // Refresh prices if needed
+  refreshPrices().then(() => renderCollection());
+
   checkPrivacy();
 
   if (!getApiKey()) {
-    setTimeout(() => {
-      toast('🔑 Configura a API key do OCR.space na Ajuda', 4000);
-    }, 1500);
+    setTimeout(() => toast('🔑 Configura a API key do OCR.space na Ajuda', 4000), 1500);
   }
 
   await initCamera();
@@ -848,7 +965,6 @@ async function init() {
     try {
       const reg = await navigator.serviceWorker.register('sw.js');
       console.log('SW registered');
-
       reg.addEventListener('updatefound', () => {
         const newSW = reg.installing;
         newSW.addEventListener('statechange', () => {
@@ -866,7 +982,7 @@ async function init() {
   console.log('PokéScanner ready');
 }
 
-// Listen for SW lifecycle messages (registered before init to avoid race)
+// Listen for SW lifecycle messages
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', event => {
     if (event.data?.type === 'SW_UPDATED') {

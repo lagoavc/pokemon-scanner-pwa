@@ -120,6 +120,35 @@
     </div>
   </div>
 
+  <div id="panel-detail" class="slide-panel">
+    <div class="panel-handle"></div>
+    <div class="panel-header">
+      <h2>Detalhes da Carta</h2>
+      <button class="btn-close" id="close-detail">&times;</button>
+    </div>
+    <div class="panel-body detail-body">
+      <div class="dt-image-wrap">
+        <img id="dt-image" alt="" onerror="this.style.display='none'">
+      </div>
+      <div class="dt-fields">
+        <div class="dt-row"><label>Nome</label><span id="dt-name"></span></div>
+        <div class="dt-row"><label>Expans&atilde;o</label><span id="dt-set"></span></div>
+        <div class="dt-row"><label>N&ordm;</label><span id="dt-number"></span></div>
+        <div class="dt-row"><label>Estado</label><span id="dt-condition"></span></div>
+        <div class="dt-row"><label>Idioma</label><span id="dt-language"></span></div>
+        <div class="dt-row"><label>Quantidade</label><span id="dt-quantity"></span></div>
+        <div class="dt-row"><label>Reverse Holo</label><span id="dt-holo-row"></span></div>
+        <div class="dt-row dt-price-row"><label>Teu Pre&ccedil;o</label><span id="dt-user-price"></span></div>
+        <div class="dt-row dt-price-row"><label>Cardmarket Avg</label><span id="dt-cm-price"></span></div>
+        <div class="dt-row dt-muted"><label>Pre&ccedil;o atualizado</label><span id="dt-price-updated"></span></div>
+      </div>
+    </div>
+    <div class="panel-footer">
+      <button id="detail-edit" class="btn primary half">&#9998; Editar</button>
+      <button id="detail-delete" class="btn danger half">&#128465; Remover</button>
+    </div>
+  </div>
+
   <div id="panel-list" class="slide-panel">
     <div class="panel-handle"></div>
     <div class="panel-header">
@@ -127,23 +156,9 @@
       <button class="btn-close" id="close-list">&times;</button>
     </div>
     <div class="panel-body">
-      <p id="empty-msg" class="empty-state">Nenhuma carta adicionada.</p>
+      <p id="empty-msg" class="empty-state">Nenhuma carta na cole&ccedil;&atilde;o.</p>
       <div id="list-content" class="hidden">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Exp.</th>
-              <th>N&ordm;</th>
-              <th>Est.</th>
-              <th>Idioma</th>
-              <th>Pre&ccedil;o</th>
-              <th>Qtd</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="list-tbody"></tbody>
-        </table>
+        <div id="collection-grid" class="collection-grid"></div>
       </div>
     </div>
     <div class="panel-footer">
