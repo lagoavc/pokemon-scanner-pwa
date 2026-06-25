@@ -473,8 +473,37 @@ function checkPrivacy() {
   }
 }
 
+// ─── Sort ─────────────────────────────────────────────────
+let sortKey = 'name-asc';
+
+function sortCards() {
+  const [field, dir] = sortKey.split('-');
+  cards.sort((a, b) => {
+    let cmp;
+    if (field === 'name') {
+      cmp = (a.name || '').localeCompare(b.name || '');
+    } else if (field === 'price') {
+      const pa = a.holo ? (a.cardmarketPriceHolo ?? a.cardmarketPrice ?? 0) : (a.cardmarketPrice ?? 0);
+      const pb = b.holo ? (b.cardmarketPriceHolo ?? b.cardmarketPrice ?? 0) : (b.cardmarketPrice ?? 0);
+      cmp = pa - pb;
+    }
+    return dir === 'desc' ? -cmp : cmp;
+  });
+}
+
+$$('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.sort === sortKey) return;
+    sortKey = btn.dataset.sort;
+    $$('.sort-btn').forEach(b => b.classList.toggle('active', b.dataset.sort === sortKey));
+    sortCards();
+    renderCollection();
+  });
+});
+
 // ─── Collection UI ────────────────────────────────────────
 function renderCollection() {
+  sortCards();
   const grid = $('collection-grid');
   const empty = $('empty-msg');
   const header = $('list-content');
