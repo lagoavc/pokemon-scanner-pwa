@@ -544,6 +544,27 @@ function showCardDetail(index) {
   }
 }
 
+// Manual price refresh in detail panel
+$('dt-refresh-price').addEventListener('click', async () => {
+  const c = cards[+$('detail-delete').dataset.index];
+  if (!c || !c.setId || !c.number) { toast('Sem dados para pesquisar preço'); return; }
+  toast('📡 A atualizar preço...');
+  const pricing = await fetchTCGdexPrice(`${c.setId}-${parseCollectorNumber(c.number)}`, c.name, c.number);
+  if (pricing) {
+    c.cardmarketPrice = pricing.avg ?? null;
+    c.cardmarketPriceHolo = pricing['avg-holo'] ?? null;
+    c.lastPriceUpdate = new Date().toISOString();
+    saveCards();
+    const newCm = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
+    $('dt-cm-price').innerHTML = newCm != null ? `€${newCm.toFixed(2)}` : '—';
+    $('dt-price-updated').textContent = new Date(c.lastPriceUpdate).toLocaleString();
+    renderCollection();
+    toast(`💰 Preço Cardmarket: €${(newCm ?? 0).toFixed(2)}`);
+  } else {
+    toast('❌ Não foi possível obter preço');
+  }
+});
+
 function editCard(index) {
   const c = cards[index];
   if (!c) return;
