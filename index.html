@@ -175,20 +175,13 @@
     <div class="panel-footer">
       <button id="btn-scan-more" class="btn full">&#128247; Digitalizar Mais</button>
       <div class="footer-row">
-        <button id="btn-clear" class="btn danger half">&#128465; Limpar</button>
-        <button id="btn-export-csv" class="btn primary half">&#128229; Exportar CSV</button>
-      </div>
-      <div class="export-options hidden" id="export-options">
-        <p>Formato:</p>
-        <button class="btn small" data-format="simple">Simples (Nome,Exp,N&ordm;)</button>
-        <button class="btn small" data-format="cardmarket">Cardmarket Bulk Import</button>
-        <button class="btn small" data-format="tcgpt">TCGPowerTools</button>
-      </div>
-      <div class="footer-row" style="margin-top:8px">
-        <button id="btn-export-json" class="btn half">&#128230; Exportar JSON</button>
-        <label class="btn half" style="cursor:pointer">&#128194; Importar JSON
+        <button id="btn-export-json" class="btn primary half">&#128230; Exportar Backup</button>
+        <label class="btn half" style="cursor:pointer">&#128194; Importar Backup
           <input type="file" id="file-import-json" accept=".json" hidden>
         </label>
+      </div>
+      <div class="footer-row" style="margin-top:6px">
+        <button id="btn-clear" class="btn danger half">&#128465; Limpar Tudo</button>
       </div>
     </div>
   </div>
@@ -244,18 +237,8 @@
       </section>
 
       <section class="help-section">
-        <h3>&#128230; Exportar CSV</h3>
-        <p>Tr&ecirc;s formatos dispon&iacute;veis:</p>
-        <ul>
-          <li><strong>Simples:</strong> Nome, Expans&atilde;o, N&ordm;, Idioma, Estado, Pre&ccedil;o, Qtd, Holo</li>
-          <li><strong>Cardmarket Bulk Import:</strong> formato oficial do Cardmarket para importar cole&ccedil;&otilde;es</li>
-          <li><strong>TCGPowerTools:</strong> formato compat&iacute;vel com TCGPowerTools</li>
-        </ul>
-      </section>
-
-      <section class="help-section">
-        <h3>&#128200; Backup JSON</h3>
-        <p>Pode exportar e importar a lista completa em JSON. Os dados ficam guardados no seu telem&oacute;vel (localStorage) mesmo depois de fechar a app.</p>
+        <h3>&#128200; Backup / Restauro</h3>
+        <p>Use <strong>Exportar Backup</strong> para guardar toda a cole&ccedil;&atilde;o + chave API do OCR.space num ficheiro JSON. Depois pode <strong>Importar Backup</strong> noutro telem&oacute;vel para restaurar tudo.</p>
       </section>
 
       <section class="help-section">

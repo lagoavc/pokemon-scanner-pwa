@@ -308,60 +308,18 @@ function updatePriceFromPricing(holo) {
   }
 }
 
-// ─── CSV Export ───────────────────────────────────────────
-function escapeCSV(val) {
+// ─── HTML escape helper ───────────────────────────────────
+function escapeHTML(val) {
   const s = String(val ?? '');
-  if (s.includes(';') || s.includes('"') || s.includes('\n')) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
-function generateCSVSimple() {
-  const header = 'Name;Expansion;CollectorNumber;Language;Condition;Price;Quantity;ReverseHolo';
-  const rows = cards.map(c => [
-    c.name, c.set, c.number, c.language, c.condition,
-    c.price.toFixed(2), c.quantity, c.holo ? 'Yes' : 'No'
-  ].map(escapeCSV).join(';'));
-  return '# PokéScanner Export - ' + formatDate() + '\n' + header + '\n' + rows.join('\n');
-}
-
-function generateCSVCardmarket() {
-  const header = 'idProduct;groupCount;price;idLanguage;condition;isFoil;isSigned;isAltered;isPlayset;isReverseHolo;isFirstEd;isFullArt;isUberRare;isWithDie';
-  const langMap = { 'English':1,'French':2,'German':3,'Spanish':4,'Italian':5,'Portuguese':6,'Japanese':7,'Korean':10,'Chinese Simplified':8,'Chinese Traditional':9,'Russian':11 };
-  const condMap = { 'MT':1,'NM':1,'EX':2,'GD':3,'LP':4,'PL':5,'PO':6 };
-  const rows = cards.map(c => [
-    '', c.quantity, c.price.toFixed(2), langMap[c.language] || 1,
-    condMap[c.condition] || 1, '', '', '', '', c.holo ? '1' : '', '', '', '', ''
-  ].join(';'));
-  return header + '\n' + rows.join('\n');
-}
-
-function generateCSVTCGPowerTools() {
-  const header = 'Quantity;Name;Expansion;Collector Number;Language;Condition;Price;Reverse Holo';
-  const rows = cards.map(c => [
-    c.quantity, c.name, c.set, c.number, c.language, c.condition,
-    c.price.toFixed(2), c.holo ? 'Yes' : 'No'
-  ].map(escapeCSV).join(';'));
-  return '# PokéScanner - TCGPowerTools Import\n' + header + '\n' + rows.join('\n');
-}
-
-function downloadCSV(content, filename) {
-  const blob = new Blob(['\ufeff' + content], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ─── JSON Backup / Restore ────────────────────────────────
 function exportJSON() {
   if (cards.length === 0) { toast('Lista vazia'); return; }
+  const apiKey = getApiKey();
   const data = { version: '1.0.0', exportedAt: new Date().toISOString(), cards: cards };
+  if (apiKey) data.ocrApiKey = apiKey;
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -390,6 +348,7 @@ function importJSON(file) {
       } else {
         cards = imported;
       }
+      if (data.ocrApiKey) setApiKey(data.ocrApiKey);
       migrateCards();
       saveCards();
       renderCollection();
@@ -529,10 +488,10 @@ function renderCollection() {
     const priceStr = price != null ? `€${price.toFixed(2)}` : '';
 
     div.innerHTML = `
-      <div class="ct-img">${imgSrc ? `<img src="${imgSrc}" alt="${escapeCSV(c.name)}" loading="lazy">` : '<div class="ct-placeholder">?</div>'}</div>
+      <div class="ct-img">${imgSrc ? `<img src="${imgSrc}" alt="${escapeHTML(c.name)}" loading="lazy">` : '<div class="ct-placeholder">?</div>'}</div>
       <div class="ct-info">
-        <div class="ct-name">${escapeCSV(c.name)}</div>
-        <div class="ct-meta">${escapeCSV(c.set)} ${escapeCSV(c.number)}</div>
+        <div class="ct-name">${escapeHTML(c.name)}</div>
+        <div class="ct-meta">${escapeHTML(c.set)} ${escapeHTML(c.number)}</div>
         <div class="ct-price">${priceStr}</div>
       </div>
     `;
@@ -1018,38 +977,6 @@ $('detail-delete').addEventListener('click', () => {
     closeAllPanels();
     toast('🗑️ Carta removida');
   }
-});
-
-// Export CSV
-$('btn-export-csv').addEventListener('click', () => {
-  if (cards.length === 0) { toast('Coleção vazia'); return; }
-  const opts = $('export-options');
-  opts.classList.toggle('hidden');
-});
-
-document.querySelectorAll('[data-format]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const fmt = btn.dataset.format;
-    let content, filename;
-    const date = formatDate();
-    switch (fmt) {
-      case 'simple':
-        content = generateCSVSimple();
-        filename = `pokescanner_${date}.csv`;
-        break;
-      case 'cardmarket':
-        content = generateCSVCardmarket();
-        filename = `cardmarket_bulk_${date}.csv`;
-        break;
-      case 'tcgpt':
-        content = generateCSVTCGPowerTools();
-        filename = `tcgpowertools_${date}.csv`;
-        break;
-    }
-    downloadCSV(content, filename);
-    toast(`📥 Exportado: ${filename}`);
-    $('export-options').classList.add('hidden');
-  });
 });
 
 // Clear collection
