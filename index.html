@@ -161,7 +161,12 @@
       <button class="btn-close" id="close-list">&times;</button>
     </div>
     <div class="panel-body">
-      <p id="empty-msg" class="empty-state">Nenhuma carta na cole&ccedil;&atilde;o.</p>
+      <div id="empty-msg" class="empty-state">
+        <p>Nenhuma carta na cole&ccedil;&atilde;o.</p>
+        <label class="btn" style="margin-top:12px;cursor:pointer">&#128194; Importar Backup
+          <input type="file" id="file-import-json-empty" accept=".json" hidden>
+        </label>
+      </div>
       <div id="list-content" class="hidden">
         <div id="sort-bar">
           <button class="sort-btn active" data-sort="name-asc">Nome A-Z</button>
@@ -271,6 +276,12 @@
           <tr><td>Journey Together</td><td>sv9</td><td>sv09</td></tr>
           <tr><td>Destined Rivals</td><td>sv10</td><td>sv10</td></tr>
         </table>
+      </section>
+
+      <section class="help-section">
+        <h3>&#11088; Cr&eacute;ditos</h3>
+        <p>Hugo Cerqueira &mdash; ideias, prompts e testes no telem&oacute;vel.</p>
+        <p><a href="https://opencode.ai" target="_blank" rel="noopener">OpenCode</a> + <a href="https://deepseek.com" target="_blank" rel="noopener">DeepSeek Flash</a> &mdash; desenvolvimento do c&oacute;digo.</p>
       </section>
 
       <section class="help-section help-version">

@@ -1017,10 +1017,12 @@ $('btn-accept-privacy').addEventListener('click', () => {
 
 // JSON export/import
 $('btn-export-json').addEventListener('click', exportJSON);
-$('file-import-json').addEventListener('change', (e) => {
-  const file = e.target.files?.[0];
-  if (file) importJSON(file);
-  e.target.value = '';
+['file-import-json', 'file-import-json-empty'].forEach(id => {
+  $(id).addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) importJSON(file);
+    e.target.value = '';
+  });
 });
 
 // Load version
