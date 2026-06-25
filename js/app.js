@@ -482,6 +482,23 @@ function showCardDetail(index) {
   $('detail-edit').dataset.index = index;
 
   openPanel('panel-detail');
+
+  // Refresh price if > 1h since last update
+  if (needsPriceRefresh(c.lastPriceUpdate) && c.setId && c.number) {
+    fetchTCGdexPrice(`${c.setId}-${parseCollectorNumber(c.number)}`).then(pricing => {
+      if (pricing) {
+        c.cardmarketPrice = pricing.avg ?? null;
+        c.cardmarketPriceHolo = pricing['avg-holo'] ?? null;
+        c.lastPriceUpdate = new Date().toISOString();
+        saveCards();
+        // Update detail view inline
+        const newCm = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
+        $('dt-cm-price').innerHTML = newCm != null ? `€${newCm.toFixed(2)}` : '—';
+        $('dt-price-updated').textContent = new Date(c.lastPriceUpdate).toLocaleString();
+        renderCollection();
+      }
+    });
+  }
 }
 
 function editCard(index) {
@@ -949,10 +966,6 @@ fetch('version.json')
 async function init() {
   loadCards();
   renderCollection();
-
-  // Refresh prices if needed
-  refreshPrices().then(() => renderCollection());
-
   checkPrivacy();
 
   if (!getApiKey()) {
