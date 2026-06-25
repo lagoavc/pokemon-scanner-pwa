@@ -370,6 +370,8 @@ function migrateCard(c) {
   if (c.setId === undefined) c.setId = '';
   if (c.cardmarketPrice === undefined) c.cardmarketPrice = null;
   if (c.cardmarketPriceHolo === undefined) c.cardmarketPriceHolo = null;
+  if (c.cardmarketPriceLow === undefined) c.cardmarketPriceLow = null;
+  if (c.cardmarketPriceLowHolo === undefined) c.cardmarketPriceLowHolo = null;
   if (c.lastPriceUpdate === undefined) c.lastPriceUpdate = null;
   return c;
 }
@@ -413,6 +415,8 @@ async function refreshPrices() {
         if (cardIdx >= 0) {
           cards[cardIdx].cardmarketPrice = pricing.avg ?? null;
           cards[cardIdx].cardmarketPriceHolo = pricing['avg-holo'] ?? null;
+          cards[cardIdx].cardmarketPriceLow = pricing.low ?? null;
+          cards[cardIdx].cardmarketPriceLowHolo = pricing['low-holo'] ?? null;
           cards[cardIdx].lastPriceUpdate = new Date().toISOString();
         }
       }
@@ -485,14 +489,16 @@ function renderCollection() {
 
     const imgSrc = c.image || '';
     const price = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
+    const priceLow = c.holo ? (c.cardmarketPriceLowHolo ?? c.cardmarketPriceLow) : c.cardmarketPriceLow;
     const priceStr = price != null ? `€${price.toFixed(2)}` : '';
+    const lowStr = priceLow != null ? `€${priceLow.toFixed(2)}` : '';
 
     div.innerHTML = `
       <div class="ct-img">${imgSrc ? `<img src="${imgSrc}" alt="${escapeHTML(c.name)}" loading="lazy">` : '<div class="ct-placeholder">?</div>'}</div>
       <div class="ct-info">
         <div class="ct-name">${escapeHTML(c.name)}</div>
         <div class="ct-meta">${escapeHTML(c.set)} ${escapeHTML(c.number)}</div>
-        <div class="ct-price">${priceStr}</div>
+        <div class="ct-price">${priceStr}${priceStr && lowStr ? `<span class="ct-from"> de ${lowStr}</span>` : (lowStr ? `from ${lowStr}` : '')}</div>
       </div>
     `;
     div.addEventListener('click', () => showCardDetail(i));
@@ -519,9 +525,12 @@ function showCardDetail(index) {
   const userPrice = c.price ?? 0;
   const cmPrice = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
   const cmPriceStr = cmPrice != null ? `€${cmPrice.toFixed(2)}` : '—';
+  const cmLow = c.holo ? (c.cardmarketPriceLowHolo ?? c.cardmarketPriceLow) : c.cardmarketPriceLow;
+  const cmLowStr = cmLow != null ? `€${cmLow.toFixed(2)}` : '—';
 
   $('dt-user-price').innerHTML = `€${userPrice.toFixed(2)}`;
   $('dt-cm-price').innerHTML = `${cmPriceStr}`;
+  $('dt-cm-from').innerHTML = `${cmLowStr}`;
 
   const lastUpd = c.lastPriceUpdate ? new Date(c.lastPriceUpdate).toLocaleString() : 'Nunca';
   $('dt-price-updated').textContent = lastUpd;
@@ -531,20 +540,25 @@ function showCardDetail(index) {
 
   openPanel('panel-detail');
 
+  function updateDetailFromPricing(pricing) {
+    c.cardmarketPrice = pricing.avg ?? null;
+    c.cardmarketPriceHolo = pricing['avg-holo'] ?? null;
+    c.cardmarketPriceLow = pricing.low ?? null;
+    c.cardmarketPriceLowHolo = pricing['low-holo'] ?? null;
+    c.lastPriceUpdate = new Date().toISOString();
+    saveCards();
+    const nc = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
+    const nl = c.holo ? (c.cardmarketPriceLowHolo ?? c.cardmarketPriceLow) : c.cardmarketPriceLow;
+    $('dt-cm-price').innerHTML = nc != null ? `€${nc.toFixed(2)}` : '—';
+    $('dt-cm-from').innerHTML = nl != null ? `€${nl.toFixed(2)}` : '—';
+    $('dt-price-updated').textContent = new Date(c.lastPriceUpdate).toLocaleString();
+    renderCollection();
+  }
+
   // Refresh price if > 1h since last update
   if (needsPriceRefresh(c.lastPriceUpdate) && c.setId && c.number) {
     fetchTCGdexPrice(`${c.setId}-${parseCollectorNumber(c.number)}`, c.name, c.number).then(pricing => {
-      if (pricing) {
-        c.cardmarketPrice = pricing.avg ?? null;
-        c.cardmarketPriceHolo = pricing['avg-holo'] ?? null;
-        c.lastPriceUpdate = new Date().toISOString();
-        saveCards();
-        // Update detail view inline
-        const newCm = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
-        $('dt-cm-price').innerHTML = newCm != null ? `€${newCm.toFixed(2)}` : '—';
-        $('dt-price-updated').textContent = new Date(c.lastPriceUpdate).toLocaleString();
-        renderCollection();
-      }
+      if (pricing) updateDetailFromPricing(pricing);
     });
   }
 }
@@ -558,13 +572,17 @@ $('dt-refresh-price').addEventListener('click', async () => {
   if (pricing) {
     c.cardmarketPrice = pricing.avg ?? null;
     c.cardmarketPriceHolo = pricing['avg-holo'] ?? null;
+    c.cardmarketPriceLow = pricing.low ?? null;
+    c.cardmarketPriceLowHolo = pricing['low-holo'] ?? null;
     c.lastPriceUpdate = new Date().toISOString();
     saveCards();
-    const newCm = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
-    $('dt-cm-price').innerHTML = newCm != null ? `€${newCm.toFixed(2)}` : '—';
+    const nc = c.holo ? (c.cardmarketPriceHolo ?? c.cardmarketPrice) : c.cardmarketPrice;
+    const nl = c.holo ? (c.cardmarketPriceLowHolo ?? c.cardmarketPriceLow) : c.cardmarketPriceLow;
+    $('dt-cm-price').innerHTML = nc != null ? `€${nc.toFixed(2)}` : '—';
+    $('dt-cm-from').innerHTML = nl != null ? `€${nl.toFixed(2)}` : '—';
     $('dt-price-updated').textContent = new Date(c.lastPriceUpdate).toLocaleString();
     renderCollection();
-    toast(`💰 Preço Cardmarket: €${(newCm ?? 0).toFixed(2)}`);
+    toast(`💰 Avg: €${(nc ?? 0).toFixed(2)}  From: €${(nl ?? 0).toFixed(2)}`);
   } else {
     toast('❌ Não foi possível obter preço');
   }
@@ -594,7 +612,7 @@ function editCard(index) {
   // Pre-fill price from stored Cardmarket data
   lastPricing = null;
   if (c.cardmarketPrice != null || c.cardmarketPriceHolo != null) {
-    lastPricing = { avg: c.cardmarketPrice, 'avg-holo': c.cardmarketPriceHolo };
+    lastPricing = { avg: c.cardmarketPrice, 'avg-holo': c.cardmarketPriceHolo, low: c.cardmarketPriceLow, 'low-holo': c.cardmarketPriceLowHolo };
   }
 
   // Change button text
@@ -920,6 +938,8 @@ $('btn-add').addEventListener('click', () => {
     setId: pendingCard?.setId || '',
     cardmarketPrice: lastPricing?.avg ?? null,
     cardmarketPriceHolo: lastPricing?.['avg-holo'] ?? null,
+    cardmarketPriceLow: lastPricing?.low ?? null,
+    cardmarketPriceLowHolo: lastPricing?.['low-holo'] ?? null,
     lastPriceUpdate: lastPricing ? new Date().toISOString() : null
   };
 

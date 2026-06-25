@@ -104,6 +104,7 @@ header h1{font-size:18px;font-weight:700;color:var(--accent);letter-spacing:1px}
 .ct-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}
 .ct-meta{font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ct-price{font-size:12px;color:var(--accent2);font-weight:600;margin-top:4px}
+.ct-from{font-size:10px;color:var(--text2);font-weight:400}
 
 /* Detail Panel */
 .detail-body{padding-top:4px}
